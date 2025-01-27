@@ -20,23 +20,15 @@ class ResConfigSettings(models.TransientModel):
         help="Your MONEI API Key"
     )
     
-    mock_server = fields.Boolean(
-        string="Mock Server",
-        config_parameter='monei.mock_server',
-        default=False,
-        help="Use the mock server instead of the real MONEI API"
-    )
-    
     def set_values(self):
-        """Override to handle payment deletion when API key or mock server changes"""
+        """Override to handle payment deletion when API key changes"""
         old_api_key = self.env['ir.config_parameter'].sudo().get_param('monei.api_key')
-        old_mock_server = self.env['ir.config_parameter'].sudo().get_param('monei.mock_server') == 'True'
         
         # Save new values
         res = super().set_values()
         
-        # If API key or mock server changed, delete all payments
-        if self.monei_api_key != old_api_key or self.mock_server != old_mock_server:
+        # If API key changed, delete all payments
+        if self.monei_api_key != old_api_key:
             self.env['monei.payment'].sudo().search([]).unlink()
             return {
                 'type': 'ir.actions.client',
@@ -60,9 +52,6 @@ class ResConfigSettings(models.TransientModel):
         Returns:
             str: The complete API URL
         """
-        if self.env['ir.config_parameter'].sudo().get_param('monei.mock_server') == 'True':
-            return 'http://host.docker.internal:5001'
-        
         return f'https://{subdomain}.monei.com'
 
     @api.constrains('monei_api_key')
@@ -117,37 +106,3 @@ class ResConfigSettings(models.TransientModel):
                         raise ValidationError(f"{str(e)}")
                 except Exception as e:
                     raise ValidationError(f"API Key validation failed: {str(e)}")
-
-    def action_test_connection(self, api_key=None):
-        """Test the connection to MONEI API"""
-        if not api_key:
-            api_key = self.monei_api_key
-        if not api_key:
-            raise UserError(_('Please set and save the API Key first'))
-
-        try:
-            api_service = MoneiAPIService(self.env)
-            api_service.test_connection(api_key)
-            
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'title': _('Success'),
-                    'message': _('Connection to MONEI API successful'),
-                    'type': 'success',
-                }
-            }
-            
-        except Exception as e:
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'title': _('Error'),
-                    'message': str(e),
-                    'type': 'danger',
-                    'sticky': True,
-                }
-            }
-    
