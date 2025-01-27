@@ -1,5 +1,6 @@
 {
     'name': 'MONEI',
+    'author': 'MONEI',
     'version': '1.0.0',
     'category': 'Accounting',
     'sequence': 350,
