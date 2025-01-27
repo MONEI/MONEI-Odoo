@@ -21,7 +21,7 @@
         'views/sale_order_views.xml',
     ],
     'application': True,
-    'license': 'LGPL-3',
+    'license': 'Other proprietary',
     'external_dependencies': {
         'python': ['requests'],
     },
