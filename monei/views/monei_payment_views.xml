@@ -1,0 +1,330 @@
+<?xml version="1.0"?>
+<odoo>
+    <record id="monei_payment_action" model="ir.actions.act_window">
+        <field name="name">Payments</field>
+        <field name="res_model">monei.payment</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="monei_payment_view_list" model="ir.ui.view">
+        <field name="name">monei.payment.list</field>
+        <field name="model">monei.payment</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0">
+                <header>
+                    <button name="%(action_monei_sync_wizard)d" 
+                        string="Sync Payments" 
+                        type="action" 
+                        display="always"/>
+                    <button name="action_link_orders"
+                        string="Link Orders"
+                        type="object"
+                        display="always"
+                        help="Link payments with their corresponding sale orders"/>
+                    <button name="%(action_monei_payment_create_wizard)d" 
+                        string="Create Payment" 
+                        type="action" 
+                        display="always"
+                        class="btn-primary"/> 
+                </header>
+                <field name="currency_id" column_invisible="True"/>
+                <field name="amount" widget="monetary" sum="Total Amount" string="Amount"/>
+                <field name="status" 
+                        widget="badge"
+                        string="Status"
+                        decoration-success="status == 'SUCCEEDED'" 
+                        decoration-info="status == 'AUTHORIZED'"
+                        decoration-warning="status == 'PENDING'"
+                        decoration-muted="status == 'EXPIRED'"
+                        decoration-danger="status in ('FAILED', 'CANCELED')"
+                        decoration-primary="status in ('REFUNDED', 'PARTIALLY_REFUNDED')"/>
+                <field name="store_name" string="Store"/>
+                <field name="order_id" string="Order ID"/>
+                <field name="customer_display" string="Customer"/>
+                <field name="payment_method_display" string="Payment Method" class="text-center"/>
+                <field name="payment_date" string="Date"/>
+                <field name="payment_url" widget="url" nolabel="1" text="External Link"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="monei_payment_view_form" model="ir.ui.view">
+        <field name="name">monei.payment.form</field>
+        <field name="model">monei.payment</field>
+        <field name="arch" type="xml">
+            <form create="0" edit="0" delete="0">
+                <header>
+                    <!-- Capture button - only visible for AUTHORIZED payments -->
+                    <button name="action_capture_payment" 
+                            string="Capture" 
+                            type="object" 
+                            class="btn-primary"
+                            confirm="Are you sure you want to capture this payment?"
+                            invisible="status != 'AUTHORIZED'"/>
+                            
+                    <!-- Refund button - only visible for SUCCEEDED or PARTIALLY_REFUNDED payments -->
+                    <button name="action_refund_payment" 
+                            string="Refund" 
+                            type="object" 
+                            class="btn-warning"
+                            confirm="Are you sure you want to refund this payment?"
+                            invisible="status not in ('SUCCEEDED', 'PARTIALLY_REFUNDED')"/>
+                            
+                    <!-- Cancel button - only visible for PENDING or AUTHORIZED payments -->
+                    <button name="action_cancel_payment" 
+                            string="Cancel" 
+                            type="object" 
+                            class="btn-danger"
+                            confirm="Are you sure you want to cancel this payment?"
+                            invisible="status not in ('PENDING', 'AUTHORIZED')"/>
+
+                    <button name="action_send_payment_link" 
+                            string="Send Payment Link" 
+                            type="object" 
+                            class="oe_highlight"
+                            invisible="status not in ('PENDING', 'AUTHORIZED')"/>
+                     <div class="oe_right oe_button_box" invisible="sale_order_id == False">
+                        <button name="action_view_sale_order" 
+                                type="object"
+                                class="oe_stat_button"
+                                icon="fa-usd">
+                            <div class="o_field_widget o_stat_info">
+                                <span class="o_stat_text">Sale Order </span>
+                                <span class="o_stat_text">
+                                    <field name="sale_order_id" readonly="True"/>
+                                </span>
+                            </div>
+                        </button>
+                    </div>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                        <h3>
+                            <field name="payment_url" widget="url" text="View in MONEI Dashboard"/>
+                        </h3>
+                    </div>
+                    <notebook>
+                        <page string="Basic Information" name="basic_info">
+                            <group>
+                                <group string="Payment Information">
+                                    <field name="currency_id" invisible="1"/>
+                                    <field name="amount"/>
+                                    <field name="currency"/>
+                                    <field name="refunded_amount"/>
+                                    <field name="payment_method"/>
+                                </group>
+                                <group string="Status">
+                                    <field name="status" 
+                                            widget="badge"
+                                            string="Status"
+                                            decoration-success="status == 'SUCCEEDED'" 
+                                            decoration-warning="status == 'PENDING'"
+                                            decoration-muted="status == 'EXPIRED'"
+                                            decoration-danger="status in ('FAILED', 'CANCELED')"
+                                            decoration-primary="status in ('REFUNDED', 'PARTIALLY_REFUNDED')"/>
+                                    <field name="status_code"/>
+                                    <field name="status_message"/>
+                                    <!-- Authorization related -->
+                                    <field name="amount" 
+                                           string="Authorized Amount"
+                                           invisible="status != 'AUTHORIZED'"/>
+                                    <!-- Cancellation related -->
+                                    <field name="cancellation_reason_display" 
+                                           invisible="status != 'CANCELED'"/>
+                                    <!-- Refund related -->
+                                    <field name="refunded_amount" 
+                                           invisible="status not in ('REFUNDED', 'PARTIALLY_REFUNDED')"/>
+                                    <field name="last_refund_amount" 
+                                           invisible="status not in ('REFUNDED', 'PARTIALLY_REFUNDED')"/>
+                                    <field name="last_refund_reason_display" 
+                                           invisible="status not in ('REFUNDED', 'PARTIALLY_REFUNDED')"/>
+                                </group>
+                            </group>
+                            <group>
+                                <group string="Dates">
+                                    <field name="payment_date"/>
+                                    <field name="updated_at"/>
+                                </group>
+                                <group string="Description">
+                                    <field name="description"/>
+                                    <field name="descriptor"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Order Information" name="order_info">
+                            <group>
+                                <group string="Order Details">
+                                    <field name="order_id" readonly="True"/>
+                                    <field name="sale_order_id" readonly="True"/>
+                                    <field name="sale_order_amount"/>
+                                    <field name="sale_order_partner_id"/>
+                                    <field name="sale_order_date"/>
+                                    <field name="sale_order_state" 
+                                           decoration-info="sale_order_state in ('draft','sent')" 
+                                           decoration-success="sale_order_state == 'sale'" 
+                                           decoration-warning="sale_order_state == 'done'" 
+                                           decoration-danger="sale_order_state == 'cancel'"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Customer Information" name="customer_info">
+                            <group>
+                                <group string="Customer Details">
+                                    <field name="customer_name"/>
+                                    <field name="customer_email" widget="email"/>
+                                    <field name="customer_phone" widget="phone"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Shipping Information" name="shipping_info">
+                            <group>
+                                <group string="Contact">
+                                    <field name="shipping_name"/>
+                                    <field name="shipping_email" widget="email"/>
+                                    <field name="shipping_phone" widget="phone"/>
+                                    <field name="shipping_company"/>
+                                    <field name="shipping_tax_id"/>
+                                </group>
+                                <group string="Address">
+                                    <field name="shipping_street"/>
+                                    <field name="shipping_street2"/>
+                                    <field name="shipping_city"/>
+                                    <field name="shipping_state"/>
+                                    <field name="shipping_zip"/>
+                                    <field name="shipping_country"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Billing Information" name="billing_info">
+                            <group>
+                                <group string="Contact">
+                                    <field name="billing_name"/>
+                                    <field name="billing_email" widget="email"/>
+                                    <field name="billing_phone" widget="phone"/>
+                                    <field name="billing_company"/>
+                                    <field name="billing_tax_id"/>
+                                </group>
+                                <group string="Address">
+                                    <field name="billing_street"/>
+                                    <field name="billing_street2"/>
+                                    <field name="billing_city"/>
+                                    <field name="billing_state"/>
+                                    <field name="billing_zip"/>
+                                    <field name="billing_country"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Technical Information" name="technical_info">
+                            <group>
+                                <group string="IDs">
+                                    <field name="account_id"/>
+                                    <field name="store_id"/>
+                                    <field name="subscription_id"/>
+                                    <field name="terminal_id"/>
+                                    <field name="sequence_id"/>
+                                </group>
+                                <group string="Provider Information">
+                                    <field name="provider_id"/>
+                                    <field name="provider_internal_id"/>
+                                    <field name="provider_reference_id"/>
+                                    <field name="point_of_sale_id"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Payment Method Details" name="payment_method_info">
+                            <group>
+                                <group string="General">
+                                    <field name="payment_method"/>
+                                    <field name="payment_method_type"/>
+                                </group>
+                                
+                                <!-- Card Details -->
+                                <group string="Card Details" invisible="payment_method != 'card'">
+                                    <field name="card_brand"/>
+                                    <field name="card_type"/>
+                                    <field name="card_last4"/>
+                                    <field name="card_country"/>
+                                    <field name="cardholder_name"/>
+                                    <field name="cardholder_email" widget="email"/>
+                                    <field name="card_expiration"/>
+                                    <field name="card_bank"/>
+                                    <field name="tokenization_method"/>
+                                    <field name="three_d_secure"/>
+                                    <field name="three_d_secure_version" invisible="three_d_secure == False"/>
+                                    <field name="three_d_secure_flow" invisible="three_d_secure == False"/>
+                                </group>
+
+                                <!-- PayPal Details -->
+                                <group string="PayPal Details" invisible="payment_method != 'paypal'">
+                                    <field name="paypal_order_id"/>
+                                    <field name="paypal_payer_id"/>
+                                    <field name="paypal_email" widget="email"/>
+                                    <field name="paypal_name"/>
+                                </group>
+
+                                <!-- Bizum Details -->
+                                <group string="Bizum Details" invisible="payment_method != 'bizum'">
+                                    <field name="bizum_phone" widget="phone"/>
+                                    <field name="bizum_integration_type"/>
+                                </group>
+
+                                <!-- SEPA Details -->
+                                <group string="SEPA Details" invisible="payment_method != 'sepa'">
+                                    <field name="sepa_accountholder_name"/>
+                                    <field name="sepa_accountholder_email" widget="email"/>
+                                    <field name="sepa_country_code"/>
+                                    <field name="sepa_bank_name"/>
+                                    <field name="sepa_bank_code"/>
+                                    <field name="sepa_bic"/>
+                                    <field name="sepa_last4"/>
+                                </group>
+
+                                <!-- Klarna Details -->
+                                <group string="Klarna Details" invisible="payment_method != 'klarna'">
+                                    <field name="klarna_billing_category"/>
+                                    <field name="klarna_auth_payment_method"/>
+                                </group>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="monei_payment_view_search" model="ir.ui.view">
+        <field name="name">monei.payment.search</field>
+        <field name="model">monei.payment</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="order_id"/>
+                <field name="customer_name"/>
+                <field name="customer_email"/>
+                <field name="currency"/>
+                <separator/>
+                <filter string="Succeeded" name="succeeded" domain="[('status', '=', 'SUCCEEDED')]"/>
+                <filter string="Pending" name="pending" domain="[('status', '=', 'PENDING')]"/>
+                <filter string="Failed" name="failed" domain="[('status', '=', 'FAILED')]"/>
+                <filter string="Canceled" name="canceled" domain="[('status', '=', 'CANCELED')]"/>
+                <filter string="Refunded" name="refunded" domain="[('status', '=', 'REFUNDED')]"/>
+                <filter string="Partially Refunded" name="partially_refunded" domain="[('status', '=', 'PARTIALLY_REFUNDED')]"/>
+                <filter string="Authorized" name="authorized" domain="[('status', '=', 'AUTHORIZED')]"/>
+                <filter string="Expired" name="expired" domain="[('status', '=', 'EXPIRED')]"/>
+                <separator/>
+                <filter string="This Month" name="this_month" 
+                        domain="[('payment_date', '&gt;=', (context_today() + relativedelta(day=1)).strftime('%Y-%m-%d')),
+                                ('payment_date', '&lt;', (context_today() + relativedelta(months=1, day=1)).strftime('%Y-%m-%d'))]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Status" name="group_by_status" context="{'group_by': 'status'}"/>
+                    <filter string="Currency" name="group_by_currency" context="{'group_by': 'currency'}"/>
+                    <filter string="Payment Method" name="group_by_payment_method" context="{'group_by': 'payment_method'}"/>
+                    <filter string="Month" name="group_by_month" context="{'group_by': 'payment_date:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+</odoo> 

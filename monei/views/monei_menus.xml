@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<odoo>
+    <menuitem id="monei_root_menu" 
+              name="MONEI"
+              web_icon="monei,static/description/icon.png"
+              sequence="10"/>
+
+    <menuitem id="monei_payment_menu" 
+              name="Payments"
+              parent="monei_root_menu"
+              action="monei_payment_action"
+              sequence="15"/>
+
+    <menuitem id="monei_configuration_menu" 
+              name="Configuration"
+              parent="monei_root_menu"
+              action="res_config_settings_action"
+              sequence="20"/>
+</odoo>

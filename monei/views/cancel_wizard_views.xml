@@ -1,0 +1,18 @@
+<odoo>
+    <record id="view_monei_payment_cancel_wizard_form" model="ir.ui.view">
+        <field name="name">monei.payment.cancel.wizard.form</field>
+        <field name="model">monei.payment.cancel.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Cancel Payment">
+                <group>
+                    <field name="payment_id" invisible="1"/>
+                    <field name="reason" placeholder="Optional reason for cancellation"/>
+                </group>
+                <footer>
+                    <button string="Cancel Payment" type="object" name="action_cancel" class="btn-primary"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo> 

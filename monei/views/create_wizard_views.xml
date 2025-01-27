@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_monei_payment_create_wizard" model="ir.ui.view">
+        <field name="name">monei.payment.create.wizard.form</field>
+        <field name="model">monei.payment.create.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create Payment">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="amount"/>
+                            <field name="currency"/>
+                            <field name="payment_methods" widget="many2many_tags" options="{'no_create': True}"/>
+                            <field name="expiration_date"/>
+                            <field name="manual_capture"/>
+                            <field name="sale_order_id"/>
+                            <field name="description"/>
+                        </group>
+                        <group>
+                            <field name="customer_name"/>
+                            <field name="customer_email"/>
+                            <field name="customer_phone"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Billing Details" name="billing">
+                            <group>
+                                <field name="billing_country"/>
+                                <field name="billing_state"/>
+                                <field name="billing_city"/>
+                                <field name="billing_zip"/>
+                                <field name="billing_address"/>
+                            </group>
+                        </page>
+                        <page string="Shipping Details" name="shipping">
+                            <group>
+                                <field name="shipping_country"/>
+                                <field name="shipping_state"/>
+                                <field name="shipping_city"/>
+                                <field name="shipping_zip"/>
+                                <field name="shipping_address"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <footer>
+                    <button string="Create" name="action_create" type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_monei_payment_create_wizard" model="ir.actions.act_window">
+        <field name="name">Create Payment</field>
+        <field name="res_model">monei.payment.create.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+</odoo> 

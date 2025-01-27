@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_order_form_inherit_monei" model="ir.ui.view">
+        <field name="name">sale.order.form.inherit.monei</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <page name='other_information' position='before'>
+                <page name="monei_payments" string="MONEI Payments" invisible="monei_payment_count == 0">
+                    <header>
+                        <button name="action_view_monei_payments"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-money"
+                        string=" MONEI Payments"
+                        invisible="monei_payment_count == 0"
+                        />
+                    </header>
+                    <field name="monei_payment_ids" readonly="1">
+                        <list>
+                            <field name="currency_id" invisible="1"/>
+                            <field name="name"/>
+                            <field name="amount"/>
+                            <field name="status" 
+                                    widget="badge"
+                                    decoration-success="status == 'SUCCEEDED'" 
+                                    decoration-info="status == 'AUTHORIZED'"
+                                    decoration-warning="status == 'PENDING'"
+                                    decoration-muted="status == 'EXPIRED'"
+                                    decoration-danger="status in ('FAILED', 'CANCELED')"
+                                    decoration-primary="status in ('REFUNDED', 'PARTIALLY_REFUNDED')"/>
+                            <field name="payment_method_display"/>
+                            <field name="payment_date"/>
+                        </list>
+                    </field>
+                </page>
+            </page>
+        </field>
+    </record>
+</odoo> 

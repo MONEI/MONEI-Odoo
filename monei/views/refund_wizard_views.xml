@@ -1,0 +1,19 @@
+<odoo>
+    <record id="view_monei_payment_refund_wizard_form" model="ir.ui.view">
+        <field name="name">monei.payment.refund.wizard.form</field>
+        <field name="model">monei.payment.refund.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Refund Payment">
+                <group>
+                    <field name="payment_id" invisible="1"/>
+                    <field name="amount"/>
+                    <field name="reason" placeholder="Optional reason for the refund"/>
+                </group>
+                <footer>
+                    <button string="Refund Payment" type="object" name="action_refund" class="btn-primary"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo> 

@@ -1,0 +1,23 @@
+.payment-method-icon {
+    height: 24px;
+    width: auto;
+    object-fit: contain;
+}
+
+.payment-method-icon + .payment-method-icon {
+    margin-left: 8px;
+}
+
+.payment-method-display {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+}
+
+/* Add some space between the icons and text */
+.payment-method-display span {
+    margin-left: 4px;
+} 
