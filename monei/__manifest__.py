@@ -21,7 +21,7 @@
         'views/sale_order_views.xml',
     ],
     'application': True,
-    'license': 'Other proprietary',
+    'license': 'OPL-1',
     'external_dependencies': {
         'python': ['requests'],
     },
