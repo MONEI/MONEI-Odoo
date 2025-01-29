@@ -1,4 +1,4 @@
-from odoo import _
+from odoo import _, modules
 from odoo.exceptions import UserError
 import requests
 import json
@@ -8,6 +8,12 @@ class MoneiAPIService:
         self.env = env
         # Get the mixin model to use its logging methods
         self.mixin = self.env['monei.mixin']
+        # Get module version from manifest, removing Odoo version prefix if present
+        manifest = modules.get_manifest('monei')
+        version = manifest.get('version', '0.0.0')
+        # Remove Odoo version prefix if present (e.g., "18.0.1.0.0" -> "1.0.0")
+        self.version = version.split('.')[-3:] if len(version.split('.')) > 3 else version
+        self.version = '.'.join(str(x) for x in self.version)
 
     def _get_api_url(self, subdomain='graphql'):
         """Get API URL with specified subdomain"""
@@ -34,6 +40,7 @@ class MoneiAPIService:
                 headers={
                     'Authorization': f'Bearer {self._get_api_key()}',
                     'Content-Type': 'application/json',
+                    'User-Agent': f'MONEI/Odoo/{self.version}'
                 },
                 json=data,
                 timeout=30
