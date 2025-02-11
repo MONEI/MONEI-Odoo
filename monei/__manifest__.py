@@ -1,5 +1,6 @@
 {
     'name': 'MONEI',
+    'author': 'MONEI',
     'version': '1.0.0',
     'category': 'Accounting',
     'sequence': 350,
@@ -21,10 +22,11 @@
         'views/sale_order_views.xml',
     ],
     'application': True,
-    'license': 'LGPL-3',
+    'license': 'OPL-1',
     'external_dependencies': {
         'python': ['requests'],
     },
+    "images": ["static/description/banner.png"],
     'assets': {
         'web.assets_backend': [
             'monei/static/description/icon.png',
