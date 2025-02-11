@@ -1,41 +1,44 @@
 <?xml version="1.0"?>
 <odoo>
-<data>
     <record id="res_config_settings_action" model="ir.actions.act_window">
-        <field name="name">Configuration</field>
+        <field name="name">Settings</field>
         <field name="type">ir.actions.act_window</field>
         <field name="res_model">res.config.settings</field>
         <field name="view_mode">form</field>
         <field name="target">inline</field>
-        <field name="context">{'module' : 'monei'}</field>
+        <field name="context">{'module' : 'monei', 'bin_size': False}</field>
     </record>
 
     <record id="res_config_settings_view_form" model="ir.ui.view">
-        <field name="name">
-            res.config.settings.view.form.inherit.monei
-        </field>
+        <field name="name">res.config.settings.view.form.inherit.monei</field>
         <field name="model">res.config.settings</field>
-        <field name="priority" eval="15"/>
+        <field name="priority" eval="10"/>
         <field name="inherit_id" ref="base.res_config_settings_view_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//form" position="inside">
-                <app data-string="MONEI" string="MONEI" name="monei">
-                    <block title="Monei Settings" name="monei_settings">
-                        <setting string="API Key"
-                                help="Your MONEI API Key"
-                                id="monei_api_key_setting"
-                                class="col-12 col-lg-12 o_setting_box">
-                            <div class="alert alert-warning mb-2" role="alert">
-                                <strong>Warning:</strong> Changing the API Key setting will delete all existing payments. They will be re-synced with the new account.
+            <xpath expr="//div[hasclass('settings')]" position="inside">
+                <div class="app_settings_block" data-string="MONEI" string="MONEI" data-key="monei">
+                    <h2>MONEI Settings</h2>
+                    <div class="row mt16 o_settings_container" name="monei_settings">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane"/>
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">API Key</span>
+                                <div class="text-muted">
+                                    Your MONEI API Key
+                                </div>
+                                <div class="alert alert-warning mb-2 mt-2" role="alert">
+                                    <strong>Warning:</strong> Changing the API Key setting will delete all existing payments. They will be re-synced with the new account.
+                                </div>
+                                <div class="content-group">
+                                    <div class="mt16">
+                                        <field name="monei_api_key" class="o_field_widget"/>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="d-flex align-items-center w-100">
-                                <field name="monei_api_key" class="flex-grow-1 me-2"/>
-                            </div>
-                        </setting>
-                    </block>
-                </app>
+                        </div>
+                    </div>
+                </div>
             </xpath>
         </field>
     </record>
-</data>
 </odoo>

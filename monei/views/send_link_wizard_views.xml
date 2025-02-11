@@ -8,8 +8,8 @@
                 <sheet>
                     <group>
                         <field name="channel"/>
-                        <field name="notification_email" invisible="channel != 'EMAIL'"/>
-                        <field name="notification_phone" invisible="channel not in ['WHATSAPP', 'SMS']"/>
+                        <field name="notification_email" attrs="{'invisible': [('channel', '!=', 'EMAIL')]}"/>
+                        <field name="notification_phone" attrs="{'invisible': [('channel', 'not in', ['WHATSAPP', 'SMS'])]}"/>
                         <field name="language"/>
                         <field name="payment_id" invisible="1"/>
                     </group>
@@ -20,5 +20,12 @@
                 </footer>
             </form>
         </field>
+    </record>
+
+    <record id="action_monei_payment_send_link_wizard" model="ir.actions.act_window">
+        <field name="name">Send Payment Link</field>
+        <field name="res_model">monei.payment.send.link.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
     </record>
 </odoo> 

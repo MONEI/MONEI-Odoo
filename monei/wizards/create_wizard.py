@@ -202,7 +202,7 @@ class MoneiPaymentCreateWizard(models.TransientModel):
                             'name': _('MONEI Payments'),
                             'type': 'ir.actions.act_window',
                             'res_model': 'monei.payment',
-                            'view_mode': 'list,form',
+                            'view_mode': 'tree,form',
                             'target': 'main',
                             'context': {
                                 'notification': {
@@ -218,7 +218,7 @@ class MoneiPaymentCreateWizard(models.TransientModel):
                     'name': _('MONEI Payments'),
                     'type': 'ir.actions.act_window',
                     'res_model': 'monei.payment',
-                    'view_mode': 'list,form',
+                    'view_mode': 'tree,form',
                     'target': 'main',
                     'context': {
                         'notification': {

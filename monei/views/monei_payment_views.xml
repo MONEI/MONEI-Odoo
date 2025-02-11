@@ -1,33 +1,18 @@
-<?xml version="1.0"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="monei_payment_action" model="ir.actions.act_window">
         <field name="name">Payments</field>
         <field name="res_model">monei.payment</field>
-        <field name="view_mode">list,form</field>
+        <field name="view_mode">tree,form</field>
     </record>
 
-    <record id="monei_payment_view_list" model="ir.ui.view">
-        <field name="name">monei.payment.list</field>
+    <record id="monei_payment_view_tree" model="ir.ui.view">
+        <field name="name">monei.payment.tree</field>
         <field name="model">monei.payment</field>
         <field name="arch" type="xml">
-            <list create="0" edit="0" delete="0">
-                <header>
-                    <button name="%(action_monei_sync_wizard)d" 
-                        string="Sync Payments" 
-                        type="action" 
-                        display="always"/>
-                    <button name="action_link_orders"
-                        string="Link Orders"
-                        type="object"
-                        display="always"
-                        help="Link payments with their corresponding sale orders"/>
-                    <button name="%(action_monei_payment_create_wizard)d" 
-                        string="Create Payment" 
-                        type="action" 
-                        display="always"
-                        class="btn-primary"/> 
-                </header>
-                <field name="currency_id" column_invisible="True"/>
+            <tree string="MONEI Payments" create="0" edit="0" delete="0" js_class="monei_payment_list">
+                <field name="currency_id" invisible="1"/>
+                <field name="name"/>
                 <field name="amount" widget="monetary" sum="Total Amount" string="Amount"/>
                 <field name="status" 
                         widget="badge"
@@ -44,7 +29,7 @@
                 <field name="payment_method_display" string="Payment Method" class="text-center"/>
                 <field name="payment_date" string="Date"/>
                 <field name="payment_url" widget="url" nolabel="1" text="External Link"/>
-            </list>
+            </tree>
         </field>
     </record>
 
@@ -60,7 +45,7 @@
                             type="object" 
                             class="btn-primary"
                             confirm="Are you sure you want to capture this payment?"
-                            invisible="status != 'AUTHORIZED'"/>
+                            attrs="{'invisible': [('status', '!=', 'AUTHORIZED')]}"/>
                             
                     <!-- Refund button - only visible for SUCCEEDED or PARTIALLY_REFUNDED payments -->
                     <button name="action_refund_payment" 
@@ -68,7 +53,7 @@
                             type="object" 
                             class="btn-warning"
                             confirm="Are you sure you want to refund this payment?"
-                            invisible="status not in ('SUCCEEDED', 'PARTIALLY_REFUNDED')"/>
+                            attrs="{'invisible': [('status', 'not in', ('SUCCEEDED', 'PARTIALLY_REFUNDED'))]}"/>
                             
                     <!-- Cancel button - only visible for PENDING or AUTHORIZED payments -->
                     <button name="action_cancel_payment" 
@@ -76,14 +61,14 @@
                             type="object" 
                             class="btn-danger"
                             confirm="Are you sure you want to cancel this payment?"
-                            invisible="status not in ('PENDING', 'AUTHORIZED')"/>
+                            attrs="{'invisible': [('status', 'not in', ('PENDING', 'AUTHORIZED'))]}"/>
 
                     <button name="action_send_payment_link" 
                             string="Send Payment Link" 
                             type="object" 
                             class="oe_highlight"
-                            invisible="status not in ('PENDING', 'AUTHORIZED')"/>
-                     <div class="oe_right oe_button_box" invisible="sale_order_id == False">
+                            attrs="{'invisible': [('status', 'not in', ('PENDING', 'AUTHORIZED'))]}"/>
+                     <div class="oe_right oe_button_box" attrs="{'invisible': [('sale_order_id', '=', False)]}">
                         <button name="action_view_sale_order" 
                                 type="object"
                                 class="oe_stat_button"
@@ -130,17 +115,17 @@
                                     <!-- Authorization related -->
                                     <field name="amount" 
                                            string="Authorized Amount"
-                                           invisible="status != 'AUTHORIZED'"/>
+                                           attrs="{'invisible': [('status', '!=', 'AUTHORIZED')]}"/>
                                     <!-- Cancellation related -->
                                     <field name="cancellation_reason_display" 
-                                           invisible="status != 'CANCELED'"/>
+                                           attrs="{'invisible': [('status', '!=', 'CANCELED')]}"/>
                                     <!-- Refund related -->
                                     <field name="refunded_amount" 
-                                           invisible="status not in ('REFUNDED', 'PARTIALLY_REFUNDED')"/>
+                                           attrs="{'invisible': [('status', 'not in', ('REFUNDED', 'PARTIALLY_REFUNDED'))]}"/>
                                     <field name="last_refund_amount" 
-                                           invisible="status not in ('REFUNDED', 'PARTIALLY_REFUNDED')"/>
+                                           attrs="{'invisible': [('status', 'not in', ('REFUNDED', 'PARTIALLY_REFUNDED'))]}"/>
                                     <field name="last_refund_reason_display" 
-                                           invisible="status not in ('REFUNDED', 'PARTIALLY_REFUNDED')"/>
+                                           attrs="{'invisible': [('status', 'not in', ('REFUNDED', 'PARTIALLY_REFUNDED'))]}"/>
                                 </group>
                             </group>
                             <group>
@@ -242,7 +227,7 @@
                                 </group>
                                 
                                 <!-- Card Details -->
-                                <group string="Card Details" invisible="payment_method != 'card'">
+                                <group string="Card Details" attrs="{'invisible': [('payment_method', '!=', 'card')]}">
                                     <field name="card_brand"/>
                                     <field name="card_type"/>
                                     <field name="card_last4"/>
@@ -253,12 +238,12 @@
                                     <field name="card_bank"/>
                                     <field name="tokenization_method"/>
                                     <field name="three_d_secure"/>
-                                    <field name="three_d_secure_version" invisible="three_d_secure == False"/>
-                                    <field name="three_d_secure_flow" invisible="three_d_secure == False"/>
+                                    <field name="three_d_secure_version" attrs="{'invisible': [('three_d_secure', '=', False)]}"/>
+                                    <field name="three_d_secure_flow" attrs="{'invisible': [('three_d_secure', '=', False)]}"/>
                                 </group>
 
                                 <!-- PayPal Details -->
-                                <group string="PayPal Details" invisible="payment_method != 'paypal'">
+                                <group string="PayPal Details" attrs="{'invisible': [('payment_method', '!=', 'paypal')]}">
                                     <field name="paypal_order_id"/>
                                     <field name="paypal_payer_id"/>
                                     <field name="paypal_email" widget="email"/>
@@ -266,13 +251,13 @@
                                 </group>
 
                                 <!-- Bizum Details -->
-                                <group string="Bizum Details" invisible="payment_method != 'bizum'">
+                                <group string="Bizum Details" attrs="{'invisible': [('payment_method', '!=', 'bizum')]}">
                                     <field name="bizum_phone" widget="phone"/>
                                     <field name="bizum_integration_type"/>
                                 </group>
 
                                 <!-- SEPA Details -->
-                                <group string="SEPA Details" invisible="payment_method != 'sepa'">
+                                <group string="SEPA Details" attrs="{'invisible': [('payment_method', '!=', 'sepa')]}">
                                     <field name="sepa_accountholder_name"/>
                                     <field name="sepa_accountholder_email" widget="email"/>
                                     <field name="sepa_country_code"/>
@@ -283,7 +268,7 @@
                                 </group>
 
                                 <!-- Klarna Details -->
-                                <group string="Klarna Details" invisible="payment_method != 'klarna'">
+                                <group string="Klarna Details" attrs="{'invisible': [('payment_method', '!=', 'klarna')]}">
                                     <field name="klarna_billing_category"/>
                                     <field name="klarna_auth_payment_method"/>
                                 </group>
@@ -327,4 +312,24 @@
             </search>
         </field>
     </record>
+
+    <record id="action_monei_payment" model="ir.actions.act_window">
+        <field name="name">MONEI Payments</field>
+        <field name="res_model">monei.payment</field>
+        <field name="view_mode">tree,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No MONEI payments found
+            </p>
+            <p>
+                Click 'Create Payment' to create a new MONEI payment or 'Sync Payments' to fetch payments from MONEI.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_monei_payment"
+        name="MONEI Payments"
+        parent="account.menu_finance"
+        action="action_monei_payment"
+        sequence="20"/>
 </odoo> 
