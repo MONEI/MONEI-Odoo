@@ -202,7 +202,7 @@ class MoneiPaymentCreateWizard(models.TransientModel):
                             'name': _('MONEI Payments'),
                             'type': 'ir.actions.act_window',
                             'res_model': 'monei.payment',
-                            'view_mode': 'list,form',
+                            'view_mode': 'tree,form',
                             'target': 'main',
                             'context': {
                                 'notification': {
@@ -218,7 +218,7 @@ class MoneiPaymentCreateWizard(models.TransientModel):
                     'name': _('MONEI Payments'),
                     'type': 'ir.actions.act_window',
                     'res_model': 'monei.payment',
-                    'view_mode': 'list,form',
+                    'view_mode': 'tree,form',
                     'target': 'main',
                     'context': {
                         'notification': {
@@ -264,9 +264,9 @@ class MoneiPaymentCreateWizard(models.TransientModel):
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
         
-        # Get active_id from context (if coming from sale order)
+        # Get id from context (if coming from sale order)
         if self.env.context.get('active_model') == 'sale.order':
-            sale_order = self.env['sale.order'].browse(self.env.context.get('active_id'))
+            sale_order = self.env['sale.order'].browse(self.env.context.get('id'))
             if sale_order:
                 res['sale_order_id'] = sale_order.id
                 

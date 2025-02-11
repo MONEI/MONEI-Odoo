@@ -23,7 +23,8 @@ class SaleOrder(models.Model):
             'name': _('MONEI Payments'),
             'type': 'ir.actions.act_window',
             'res_model': 'monei.payment',
-            'view_mode': 'list,form',
+            'view_mode': 'tree,form',
+            'target': 'main',
             'domain': [('sale_order_id', '=', self.id)],
             'context': {'create': False},
         } 

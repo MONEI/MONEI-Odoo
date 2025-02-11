@@ -29,9 +29,11 @@
     "images": ["static/description/banner.png"],
     'assets': {
         'web.assets_backend': [
-            'monei/static/description/icon.png',
             'monei/static/src/css/payment_methods.css',
             'monei/static/src/img/payment_methods/*.svg',
+        ],
+        'web.assets_common': [
+            'monei/static/description/icon.png',
         ],
     },
 }

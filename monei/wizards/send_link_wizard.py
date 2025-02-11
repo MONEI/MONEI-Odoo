@@ -31,8 +31,8 @@ class MoneiPaymentSendLinkWizard(models.TransientModel):
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
         
-        # Get payment from context or active_id
-        payment_id = self.env.context.get('default_payment_id') or self.env.context.get('active_id')
+        # Get payment from context or id
+        payment_id = self.env.context.get('default_payment_id') or self.env.context.get('id')
         if payment_id:
             payment = self.env['monei.payment'].browse(payment_id)
             if payment.exists():
@@ -86,7 +86,7 @@ class MoneiPaymentSendLinkWizard(models.TransientModel):
                     'name': _('MONEI Payments'),
                     'type': 'ir.actions.act_window',
                     'res_model': 'monei.payment',
-                    'view_mode': 'list,form',
+                    'view_mode': 'tree,form',
                     'target': 'main',
                     'context': {
                         'notification': {

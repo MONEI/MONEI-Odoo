@@ -780,7 +780,7 @@ class MoneiPayment(models.Model):
             'target': 'new',
             'context': {
                 'default_payment_id': self.id,
-                'active_id': self.id,
+                'id': self.id,
                 'default_notification_email': self.customer_email,
                 'default_notification_phone': self.customer_phone,
             }

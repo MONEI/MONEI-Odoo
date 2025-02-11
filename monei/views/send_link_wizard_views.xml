@@ -21,4 +21,11 @@
             </form>
         </field>
     </record>
+
+    <record id="action_monei_payment_send_link_wizard" model="ir.actions.act_window">
+        <field name="name">Send Payment Link</field>
+        <field name="res_model">monei.payment.send.link.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
 </odoo> 
