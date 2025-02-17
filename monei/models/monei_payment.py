@@ -336,7 +336,7 @@ class MoneiPayment(models.Model):
             
             # Add tokenization method icon if exists
             if record.tokenization_method:
-                icons_html += f'<img src="{icon_path}/{record.tokenization_method.lower()}.svg" class="payment-method-icon"/>'
+                icons_html += f'<img src="{icon_path}/{record.tokenization_method.lower()}.svg" class="payment-method-icon me-2"/>'
             
             # Add payment method/card brand icon
             if not record.payment_method:
@@ -345,14 +345,14 @@ class MoneiPayment(models.Model):
                 text_html = ''
             elif record.payment_method == 'card':
                 brand = record.card_brand or 'default'
-                icons_html += f'<img src="{icon_path}/{brand.lower()}.svg" class="payment-method-icon"/>'
+                icons_html += f'<img src="{icon_path}/{brand.lower()}.svg" class="payment-method-icon me-2"/>'
                 
                 # Only show last4 for cards
                 last4 = record.card_last4 or '****'
-                text_html = f'<span>•••• {last4}</span>'
+                text_html = f'<span class="ms-1">•••• {last4}</span>'
             else:
                 method = record.payment_method or 'unknown'
-                icons_html += f'<img src="{icon_path}/{method.lower()}.svg" class="payment-method-icon"/>'
+                icons_html += f'<img src="{icon_path}/{method.lower()}.svg" class="payment-method-icon me-2"/>'
                 text_html = ''  # No text for non-card methods
             
             # Combine icons and text
@@ -691,6 +691,8 @@ class MoneiPayment(models.Model):
                     update_fields = {
                         'status': payment.get('status'),
                         'status_code': str(payment.get('statusCode', '')),
+                        'payment_method': self._safe_get(payment, 'paymentMethod', 'method'),
+                        'payment_method_type': self._safe_get(payment, 'paymentMethod', 'method'),
                         'refunded_amount': refunded_amount,
                         'updated_at': updated_at,
                     }
@@ -703,7 +705,7 @@ class MoneiPayment(models.Model):
                             break
                     
                     if needs_update:
-                        existing.write(update_fields)
+                        existing.write(vals)
                         updated += 1
                     else:
                         skipped += 1
