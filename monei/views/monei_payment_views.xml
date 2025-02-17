@@ -28,7 +28,7 @@
                         class="btn-primary"/> 
                 </header>
                 <field name="currency_id" column_invisible="1"/>
-                <field name="name"/>
+                <field name="name" string=" " class="text-center" column_invisible="not context.get('group_by', False)"/>
                 <field name="amount" widget="monetary" sum="Total Amount" string="Amount"/>
                 <field name="status" 
                         widget="badge"
@@ -101,8 +101,18 @@
                 <sheet>
                     <div class="oe_title">
                         <h1>
-                            <field name="name" readonly="1"/>
+                            <field name="amount" widget="monetary"/> <span class="mx-2"/> <field name="status" 
+                                widget="badge"
+                                decoration-success="status == 'SUCCEEDED'" 
+                                decoration-info="status == 'AUTHORIZED'"
+                                decoration-warning="status == 'PENDING'"
+                                decoration-muted="status == 'EXPIRED'"
+                                decoration-danger="status in ('FAILED', 'CANCELED')"
+                                decoration-primary="status in ('REFUNDED', 'PARTIALLY_REFUNDED')"/>
                         </h1>
+                        <h3>
+                            <field name="name" readonly="1"/>
+                        </h3>
                         <h3>
                             <field name="payment_url" widget="url" text="View in MONEI Dashboard"/>
                         </h3>
@@ -319,10 +329,10 @@
                 <filter string="This Month" name="this_month" 
                         domain="[('payment_date', '&gt;=', (context_today() + relativedelta(day=1)).strftime('%Y-%m-%d')),
                                 ('payment_date', '&lt;', (context_today() + relativedelta(months=1, day=1)).strftime('%Y-%m-%d'))]"/>
-                <group expand="0" string="Group By">
+                <group string="Group By">
                     <filter string="Status" name="group_by_status" context="{'group_by': 'status'}"/>
                     <filter string="Currency" name="group_by_currency" context="{'group_by': 'currency'}"/>
-                    <filter string="Payment Method" name="group_by_payment_method" context="{'group_by': 'payment_method'}"/>
+                    <filter string="Payment Method" name="group_by_payment_method" context="{'group_by': 'payment_method_type'}"/>
                     <filter string="Month" name="group_by_month" context="{'group_by': 'payment_date:month'}"/>
                 </group>
             </search>
