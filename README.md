@@ -158,3 +158,53 @@ This module is licensed under LGPL-3.
 ## Credits
 
 Developed by [MONEI](https://monei.com/)
+
+## Contributing
+
+To contribute:
+
+1. Fork the repository
+2. Create a new branch from the version branch you want to contribute to (16.0, 17.0, or 18.0)
+3. Make your changes
+4. Follow the commit message convention:
+   - `feat: new feature` for features
+   - `fix: bug description` for bug fixes
+   - `docs: description` for documentation changes
+   - `chore: description` for maintenance tasks
+4. Push your changes and create a pull request
+
+### Releasing
+
+Releases are automated based on pull request commits. When a pull request is merged to version branches (16.0, 17.0, 18.0):
+
+1. The version will automatically bump based on your commits:
+   - `feat:` commits trigger a minor version bump (1.1.0)
+   - `fix:` commits trigger a patch version bump (1.0.1)
+   - Add `BREAKING CHANGE:` in commit body for major version bump (2.0.0)
+
+2. The GitHub Action will:
+   - Update version in `__manifest__.py`
+   - Create a new tag
+   - Generate release notes from commits
+   - Create a GitHub release
+
+For example:
+```bash
+# This will trigger a patch release (e.g., 1.0.1)
+git commit -m "fix: payment sync timeout issue"
+
+# This will trigger a minor release (e.g., 1.1.0)
+git commit -m "feat: add payment method filtering"
+
+# This will trigger a major release (e.g., 2.0.0)
+git commit -m "feat: switch to new API
+
+BREAKING CHANGE: This version is not compatible with previous versions"
+
+# When the PR is merged, the version will be bumped automatically
+```
+
+The version bump is determined by analyzing all commits in the PR:
+- If any commit contains `BREAKING CHANGE`, it's a major bump
+- Otherwise, if any commit starts with `feat:`, it's a minor bump
+- Otherwise, it's a patch bump
