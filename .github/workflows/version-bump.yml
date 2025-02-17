@@ -1,0 +1,61 @@
+name: Version Bump
+
+on:
+  pull_request:
+    types: [closed]
+    branches: ['16.0', '17.0', '18.0']
+
+jobs:
+  bump:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Install standard-version
+        run: npm install -g standard-version
+        
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+      - name: Bump version
+        run: |
+          # Get current version from manifest
+          CURRENT_VERSION=$(grep "version': '" monei/__manifest__.py | cut -d"'" -f4)
+          
+          # Analyze PR commits to determine bump type
+          COMMITS=$(gh pr view ${{ github.event.pull_request.number }} --json commits --jq '.commits[].messageHeadline')
+          
+          # Determine version bump type
+          BUMP_TYPE="patch"  # default to patch
+          echo "$COMMITS" | while read -r commit; do
+            if echo "$commit" | grep -q "^feat"; then
+              BUMP_TYPE="minor"
+            elif echo "$commit" | grep -q "BREAKING CHANGE"; then
+              BUMP_TYPE="major"
+              break
+            fi
+          done
+          
+          # Run standard-version with determined bump type
+          standard-version --release-as $BUMP_TYPE --skip.tag --skip.changelog
+          
+          # Get new version
+          NEW_VERSION=$(grep '"version":' package.json | cut -d'"' -f4)
+          
+          # Update manifest version
+          sed -i "s/'version': '$CURRENT_VERSION'/'version': '$NEW_VERSION'/g" monei/__manifest__.py
+          
+          # Create tag and push
+          git tag "v$NEW_VERSION"
+          git push --follow-tags origin ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
