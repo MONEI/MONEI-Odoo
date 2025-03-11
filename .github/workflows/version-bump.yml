@@ -6,7 +6,7 @@ on:
     branches: ['16.0', '17.0', '18.0']
 
 jobs:
-  bump-and-release:
+  bump-version:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
@@ -156,134 +156,9 @@ jobs:
             fi
           done
       
-      - name: Generate Changelog
-        id: changelog
+      - name: Output Version Info
         run: |
-          TAG=${{ steps.bump.outputs.tag }}
-          VERSION=${{ steps.bump.outputs.new_version }}
-          
-          # Validate outputs from previous step
-          if [ -z "$TAG" ] || [ -z "$VERSION" ]; then
-            echo "Error: Missing tag or version from previous step"
-            echo "TAG: $TAG"
-            echo "VERSION: $VERSION"
-            # Don't exit with error, try to continue with fallback values
-            if [ -z "$VERSION" ]; then
-              # Try to get version from the latest tag
-              VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//' || echo "unknown")
-              echo "Using fallback VERSION: $VERSION"
-            fi
-            if [ -z "$TAG" ]; then
-              TAG="v$VERSION"
-              echo "Using fallback TAG: $TAG"
-            fi
-          fi
-          
-          # Get PR details with error handling
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_BODY="${{ github.event.pull_request.body }}"
-          PR_URL="${{ github.event.pull_request.html_url }}"
-          
-          echo "Generating changelog for version $VERSION (tag $TAG)"
-          echo "PR: #$PR_NUMBER - $PR_TITLE"
-          
-          # Generate changelog from commits since last tag
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          echo "Previous tag: $PREVIOUS_TAG"
-          
-          echo "# Release v$VERSION" > changelog.md
-          echo "" >> changelog.md
-          
-          # Check for manual release notes
-          if [ -f "RELEASE_NOTES.md" ]; then
-            echo "Found RELEASE_NOTES.md, including in changelog"
-            echo "## Release Notes" >> changelog.md
-            cat RELEASE_NOTES.md >> changelog.md
-            echo "" >> changelog.md
-          fi
-          
-          # Add PR information if available
-          if [ ! -z "$PR_TITLE" ]; then
-            echo "## Pull Request" >> changelog.md
-            echo "[$PR_TITLE]($PR_URL) (#$PR_NUMBER)" >> changelog.md
-            echo "" >> changelog.md
-            
-            if [ ! -z "$PR_BODY" ]; then
-              echo "### Description" >> changelog.md
-              echo "$PR_BODY" >> changelog.md
-              echo "" >> changelog.md
-            fi
-          fi
-          
-          if [ -z "$PREVIOUS_TAG" ]; then
-            # First release - get all commits
-            echo "No previous tag found, including all commits"
-            echo "## Changes" >> changelog.md
-            git log --pretty=format:"* %s" ${TAG} 2>/dev/null | grep -v "chore: bump version" | grep -v "Merge pull request" >> changelog.md || echo "* Initial release" >> changelog.md
-          else
-            # Group changes by type
-            echo "## Changes since $PREVIOUS_TAG" >> changelog.md
-            echo "" >> changelog.md
-            
-            # Features
-            FEATURES=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" 2>/dev/null | grep "^* feat" || echo "")
-            if [ ! -z "$FEATURES" ]; then
-              echo "### ✨ New Features" >> changelog.md
-              echo "$FEATURES" >> changelog.md
-              echo "" >> changelog.md
-            fi
-            
-            # Fixes
-            FIXES=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" 2>/dev/null | grep "^* fix" || echo "")
-            if [ ! -z "$FIXES" ]; then
-              echo "### 🐛 Bug Fixes" >> changelog.md
-              echo "$FIXES" >> changelog.md
-              echo "" >> changelog.md
-            fi
-            
-            # Other changes - excluding PR merges and version bumps
-            OTHER=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" 2>/dev/null | 
-                   grep -v "^* feat" | 
-                   grep -v "^* fix" | 
-                   grep -v "chore: bump version" | 
-                   grep -v "Merge pull request" || echo "")
-            if [ ! -z "$OTHER" ]; then
-              echo "### 🔄 Other Changes" >> changelog.md
-              echo "$OTHER" >> changelog.md
-            fi
-            
-            # If no changes were found, add a default message
-            if [ -z "$FEATURES" ] && [ -z "$FIXES" ] && [ -z "$OTHER" ]; then
-              echo "### Changes" >> changelog.md
-              echo "* Maintenance release" >> changelog.md
-            fi
-          fi
-          
-          echo "Generated changelog:"
-          cat changelog.md
-          
-          # Output changelog for GitHub Actions
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          cat changelog.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-      
-      - name: Create Project Zip
-        run: |
-          # Create a zip of the entire project excluding unnecessary files
-          zip -r docker-odoo.zip . \
-            -x '*.git*' \
-            -x '*/.github/*' \
-            -x '*.pyc' \
-            -x '__pycache__/*' \
-            -x '*/.DS_Store' \
-            -x '*/._*'
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.bump.outputs.tag }}
-          name: "Release ${{ steps.bump.outputs.new_version }}"
-          body_path: changelog.md
-          files: docker-odoo.zip
-          token: ${{ secrets.GITHUB_TOKEN }} 
+          echo "Version bump completed successfully!"
+          echo "New version: ${{ steps.bump.outputs.new_version }}"
+          echo "New tag: ${{ steps.bump.outputs.tag }}"
+          echo "The release workflow will now be triggered to create a GitHub release." 
