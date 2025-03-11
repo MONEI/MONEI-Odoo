@@ -89,6 +89,13 @@ if [[ ! "$BUMP_TYPE" =~ ^(patch|minor|major)$ ]]; then
   exit 1
 fi
 
+# Get current branch and extract Odoo version
+get_odoo_version() {
+  BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  ODOO_VERSION=$(echo "$BRANCH" | grep -oE '[0-9]+\.[0-9]+' || echo "unknown")
+  echo "$ODOO_VERSION"
+}
+
 # Get current version from manifest
 get_current_version() {
   MANIFEST_FILE=$(find . -name "__manifest__.py" | head -1)
@@ -111,9 +118,11 @@ get_current_version() {
 bump_version() {
   local current_version=$1
   local bump_type=$2
+  local odoo_version=$3
   
   echo "Current version: $current_version"
   echo "Bump type: $bump_type"
+  echo "Odoo version: $odoo_version"
   
   # Parse version
   IFS='.' read -r -a VERSION_PARTS <<< "$current_version"
@@ -162,14 +171,15 @@ bump_version() {
     
     # Create tag if requested
     if [ "$CREATE_TAG" = true ]; then
-      echo "Creating tag v$NEW_VERSION"
-      git tag "v$NEW_VERSION"
+      TAG="v$NEW_VERSION-odoo$odoo_version"
+      echo "Creating tag $TAG"
+      git tag "$TAG"
       
       # Push changes if requested
       if [ "$PUSH_TAG" = true ]; then
         echo "Pushing changes and tag to remote"
         git push origin HEAD
-        git push origin "v$NEW_VERSION"
+        git push origin "$TAG"
       fi
     fi
   else
@@ -183,15 +193,16 @@ bump_version() {
 # Generate changelog
 generate_changelog() {
   local version=$1
-  local tag="v$version"
+  local odoo_version=$2
+  local tag="v$version-odoo$odoo_version"
   
-  echo "Generating changelog for version $version (tag $tag)"
+  echo "Generating changelog for version $version (tag $tag) for Odoo $odoo_version"
   
   # Find previous tag
   PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
   echo "Previous tag: $PREVIOUS_TAG"
   
-  echo "# Release $tag" > changelog.md
+  echo "# Release $version for Odoo $odoo_version" > changelog.md
   echo "" >> changelog.md
   
   # Check for manual release notes
@@ -253,7 +264,8 @@ generate_changelog() {
 # Create release
 create_release() {
   local version=$1
-  local tag="v$version"
+  local odoo_version=$2
+  local tag="v$version-odoo$odoo_version"
   
   # Check if tag exists
   if ! git rev-parse "$tag" >/dev/null 2>&1; then
@@ -272,11 +284,11 @@ create_release() {
   fi
   
   # Generate changelog
-  generate_changelog "$version"
+  generate_changelog "$version" "$odoo_version"
   
   # Create zip file
   echo "Creating zip file..."
-  ZIP_FILE="monei-odoo-$version.zip"
+  ZIP_FILE="monei-odoo-$version-odoo$odoo_version.zip"
   zip -r "$ZIP_FILE" . \
     -x '*.git*' \
     -x '*/.github/*' \
@@ -300,7 +312,7 @@ create_release() {
     
     echo "Creating GitHub release..."
     gh release create "$tag" \
-      --title "Release $version" \
+      --title "Release $version (Odoo $odoo_version)" \
       --notes-file changelog.md \
       "$ZIP_FILE"
     
@@ -312,16 +324,19 @@ create_release() {
 }
 
 # Main execution
+ODOO_VERSION=$(get_odoo_version)
 CURRENT_VERSION=$(get_current_version)
 NEW_VERSION=$CURRENT_VERSION
 
+echo "Working with Odoo version: $ODOO_VERSION"
+
 # Perform the requested action
 if [[ "$ACTION" == "bump" || "$ACTION" == "both" ]]; then
-  NEW_VERSION=$(bump_version "$CURRENT_VERSION" "$BUMP_TYPE")
+  NEW_VERSION=$(bump_version "$CURRENT_VERSION" "$BUMP_TYPE" "$ODOO_VERSION")
 fi
 
 if [[ "$ACTION" == "release" || "$ACTION" == "both" ]]; then
-  create_release "$NEW_VERSION"
+  create_release "$NEW_VERSION" "$ODOO_VERSION"
 fi
 
 echo "Done!" 

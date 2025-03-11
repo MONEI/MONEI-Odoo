@@ -52,6 +52,10 @@ jobs:
       - name: Determine Version and Tag
         id: version
         run: |
+          # Extract Odoo version from branch name
+          ODOO_VERSION=$(echo "${{ github.ref_name }}" | grep -oE '[0-9]+\.[0-9]+')
+          echo "Odoo version: $ODOO_VERSION"
+          
           # If version is not provided, get it from manifest
           if [ -z "${{ github.event.inputs.version }}" ]; then
             MANIFEST_FILE=$(find . -name "__manifest__.py" | head -1)
@@ -69,9 +73,9 @@ jobs:
             VERSION="${{ github.event.inputs.version }}"
           fi
           
-          # If tag is not provided, construct it from version
+          # If tag is not provided, construct it from version and Odoo version
           if [ -z "${{ github.event.inputs.tag }}" ]; then
-            TAG="v$VERSION"
+            TAG="v$VERSION-odoo$ODOO_VERSION"
           else
             TAG="${{ github.event.inputs.tag }}"
           fi
@@ -79,6 +83,7 @@ jobs:
           echo "Using version: $VERSION and tag: $TAG"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "odoo_version=$ODOO_VERSION" >> $GITHUB_OUTPUT
       
       - name: Check for existing tag
         id: check_tag
@@ -103,14 +108,15 @@ jobs:
         run: |
           TAG=${{ steps.version.outputs.tag }}
           VERSION=${{ steps.version.outputs.version }}
+          ODOO_VERSION=${{ steps.version.outputs.odoo_version }}
           
-          echo "Generating changelog for version $VERSION (tag $TAG)"
+          echo "Generating changelog for version $VERSION (tag $TAG) for Odoo $ODOO_VERSION"
           
           # Generate changelog from commits since last tag
           PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           echo "Previous tag: $PREVIOUS_TAG"
           
-          echo "# Release $TAG" > changelog.md
+          echo "# Release $VERSION for Odoo $ODOO_VERSION" > changelog.md
           echo "" >> changelog.md
           
           # Check for manual release notes
@@ -174,9 +180,12 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
       
       - name: Create Project Zip
+        id: create_zip
         run: |
           # Create a zip of the entire project excluding unnecessary files
-          zip -r monei-odoo.zip . \
+          ZIP_FILE="monei-odoo-${{ steps.version.outputs.version }}-odoo${{ steps.version.outputs.odoo_version }}.zip"
+          
+          zip -r "$ZIP_FILE" . \
             -x '*.git*' \
             -x '*/.github/*' \
             -x '*.pyc' \
@@ -184,14 +193,16 @@ jobs:
             -x '*/.DS_Store' \
             -x '*/._*' \
             -x 'changelog.md'
+          
+          echo "zip_file=$ZIP_FILE" >> $GITHUB_OUTPUT
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: "Release ${{ steps.version.outputs.version }}"
+          name: "Release ${{ steps.version.outputs.version }} (Odoo ${{ steps.version.outputs.odoo_version }})"
           body: ${{ steps.changelog.outputs.changelog }}
-          files: monei-odoo.zip
+          files: ${{ steps.create_zip.outputs.zip_file }}
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: ${{ github.event.inputs.draft || false }}
           prerelease: false 
