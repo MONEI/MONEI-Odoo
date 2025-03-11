@@ -20,7 +20,7 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app data-string="MONEI" string="MONEI" name="monei">
-                    <block title="Monei Settings" name="monei_settings">
+                    <block title="Connection Settings" name="connection_settings">
                         <setting string="API Key"
                                 help="Your MONEI API Key"
                                 id="monei_api_key_setting"
@@ -30,6 +30,36 @@
                             </div>
                             <div class="d-flex align-items-center w-100">
                                 <field name="monei_api_key" class="flex-grow-1 me-2"/>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Sync Settings" name="sync_settings">
+                        <div class="information alert-information mb-2" role="info" invisible="monei_api_key">
+                            <strong>Info:</strong> You must set an API Key before enabling automatic synchronization.
+                        </div>
+                        <setting string="Disable Automatic Sync"
+                                help="Control whether payments are automatically synced when opening their form"
+                                id="disable_sync_on_load_setting"
+                                class="col-12 col-lg-12 o_setting_box">
+                            <field name="disable_sync_on_load" readonly="not monei_api_key"/>
+                            <div class="mt8">
+                                <small>Improves performance by preventing automatic sync on form open</small>
+                            </div>
+                        </setting>
+                        <setting string="Automatic Sync Schedule"
+                                help="Configure automatic synchronization schedule"
+                                id="cron_sync_setting"
+                                class="col-12 col-lg-12 o_setting_box">
+                            <field name="enable_cron_sync" readonly="not monei_api_key"/>
+                            <div class="content-group" invisible="not enable_cron_sync">
+                                <div class="mt16 row">
+                                    <label for="cron_interval_number" string="Sync Frequency" class="col-lg-3 o_light_label"/>
+                                    <field name="cron_interval_number" class="col-lg-3" readonly="not monei_api_key"/>
+                                    <field name="cron_interval_type" class="col-lg-6" readonly="not monei_api_key"/>
+                                </div>
+                                <div class="mt8">
+                                    <small>Note: Each sync will retrieve payments from the last 24 hours</small>
+                                </div>
                             </div>
                         </setting>
                     </block>

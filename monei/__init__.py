@@ -4,6 +4,7 @@ from . import models
 from . import services
 from . import graphql
 from . import wizards
+from .hooks import post_init_hook, uninstall_hook
 
 # logger = logging.getLogger(__name__)
 
