@@ -1,0 +1,197 @@
+name: Unified Release Process
+
+on:
+  # Automatic trigger after version bump
+  workflow_run:
+    workflows: ["Version Bump and Release"]
+    types:
+      - completed
+    branches: ['16.0', '17.0', '18.0']
+  
+  # Manual trigger with optional parameters
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (without v prefix, e.g. 1.1.0)'
+        required: false
+        default: ''
+      tag:
+        description: 'Tag to use for release (with v prefix, e.g. v1.1.0)'
+        required: false
+        default: ''
+      create_tag:
+        description: 'Create tag if it does not exist'
+        type: boolean
+        required: false
+        default: false
+      draft:
+        description: 'Create as draft release'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  create-release:
+    # Skip if the version bump workflow failed
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+      - name: Determine Version and Tag
+        id: version
+        run: |
+          # If version is not provided, get it from manifest
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            MANIFEST_FILE=$(find . -name "__manifest__.py" | head -1)
+            if [ -z "$MANIFEST_FILE" ]; then
+              echo "No __manifest__.py file found"
+              exit 1
+            fi
+            
+            VERSION=$(grep -E "'version':\s*'[0-9]+\.[0-9]+\.[0-9]+'" $MANIFEST_FILE | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" || echo "")
+            if [ -z "$VERSION" ]; then
+              echo "Failed to extract version from $MANIFEST_FILE"
+              exit 1
+            fi
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          
+          # If tag is not provided, construct it from version
+          if [ -z "${{ github.event.inputs.tag }}" ]; then
+            TAG="v$VERSION"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          
+          echo "Using version: $VERSION and tag: $TAG"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+      
+      - name: Check for existing tag
+        id: check_tag
+        run: |
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Tag ${{ steps.version.outputs.tag }} already exists"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag ${{ steps.version.outputs.tag }} does not exist"
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create tag if needed
+        if: ${{ steps.check_tag.outputs.tag_exists == 'false' && github.event.inputs.create_tag == 'true' }}
+        run: |
+          echo "Creating tag ${{ steps.version.outputs.tag }}"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+      
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          TAG=${{ steps.version.outputs.tag }}
+          VERSION=${{ steps.version.outputs.version }}
+          
+          echo "Generating changelog for version $VERSION (tag $TAG)"
+          
+          # Generate changelog from commits since last tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "Previous tag: $PREVIOUS_TAG"
+          
+          echo "# Release $TAG" > changelog.md
+          echo "" >> changelog.md
+          
+          # Check for manual release notes
+          if [ -f "RELEASE_NOTES.md" ]; then
+            echo "Found RELEASE_NOTES.md, including in changelog"
+            echo "## Release Notes" >> changelog.md
+            cat RELEASE_NOTES.md >> changelog.md
+            echo "" >> changelog.md
+          fi
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            # First release - get all commits
+            echo "No previous tag found, including all commits"
+            echo "## Changes" >> changelog.md
+            git log --pretty=format:"* %s" 2>/dev/null | grep -v "chore: bump version" | grep -v "Merge pull request" | head -50 >> changelog.md || echo "* Initial release" >> changelog.md
+          else
+            # Group changes by type
+            echo "## Changes since $PREVIOUS_TAG" >> changelog.md
+            echo "" >> changelog.md
+            
+            # Features
+            FEATURES=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"* %s" 2>/dev/null | grep "^feat" || echo "")
+            if [ ! -z "$FEATURES" ]; then
+              echo "### ✨ New Features" >> changelog.md
+              echo "$FEATURES" >> changelog.md
+              echo "" >> changelog.md
+            fi
+            
+            # Fixes
+            FIXES=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"* %s" 2>/dev/null | grep "^fix" || echo "")
+            if [ ! -z "$FIXES" ]; then
+              echo "### 🐛 Bug Fixes" >> changelog.md
+              echo "$FIXES" >> changelog.md
+              echo "" >> changelog.md
+            fi
+            
+            # Other changes - excluding PR merges and version bumps
+            OTHER=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"* %s" 2>/dev/null | 
+                   grep -v "^feat" | 
+                   grep -v "^fix" | 
+                   grep -v "chore: bump version" | 
+                   grep -v "Merge pull request" || echo "")
+            if [ ! -z "$OTHER" ]; then
+              echo "### 🔄 Other Changes" >> changelog.md
+              echo "$OTHER" >> changelog.md
+            fi
+            
+            # If no changes were found, add a default message
+            if [ -z "$FEATURES" ] && [ -z "$FIXES" ] && [ -z "$OTHER" ]; then
+              echo "### Changes" >> changelog.md
+              echo "* Maintenance release" >> changelog.md
+            fi
+          fi
+          
+          echo "Generated changelog:"
+          cat changelog.md
+          
+          # Output changelog for GitHub Actions
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Create Project Zip
+        run: |
+          # Create a zip of the entire project excluding unnecessary files
+          zip -r monei-odoo.zip . \
+            -x '*.git*' \
+            -x '*/.github/*' \
+            -x '*.pyc' \
+            -x '__pycache__/*' \
+            -x '*/.DS_Store' \
+            -x '*/._*' \
+            -x 'changelog.md'
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Release ${{ steps.version.outputs.version }}"
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: monei-odoo.zip
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: ${{ github.event.inputs.draft || false }}
+          prerelease: false 
