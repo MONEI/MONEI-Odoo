@@ -36,13 +36,26 @@ jobs:
             exit 1
           fi
           
-          CURRENT_VERSION=$(grep "version': '" $MANIFEST_FILE | cut -d"'" -f4)
+          # More robust version extraction with error handling
+          CURRENT_VERSION=$(grep -E "'version':\s*'[0-9]+\.[0-9]+\.[0-9]+'" $MANIFEST_FILE | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" || echo "")
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "Failed to extract current version from $MANIFEST_FILE"
+            echo "Manifest content:"
+            cat $MANIFEST_FILE | grep -A 3 -B 3 "version"
+            exit 1
+          fi
           echo "Current version: $CURRENT_VERSION"
           
           # Analyze PR commits to determine bump type
-          COMMITS=$(gh pr view ${{ github.event.pull_request.number }} --json commits --jq '.commits[].messageHeadline')
-          echo "Commits in PR:"
-          echo "$COMMITS"
+          echo "PR number: ${{ github.event.pull_request.number }}"
+          COMMITS=$(gh pr view ${{ github.event.pull_request.number }} --json commits --jq '.commits[].messageHeadline' || echo "")
+          if [ -z "$COMMITS" ]; then
+            echo "Warning: Could not fetch commits from PR. Using default patch bump."
+            COMMITS=""
+          else
+            echo "Commits in PR:"
+            echo "$COMMITS"
+          fi
           
           # Determine version bump type - fixed to avoid subshell variable scope issues
           BUMP_TYPE="patch"  # default to patch
@@ -57,7 +70,12 @@ jobs:
           
           echo "Bump type determined: $BUMP_TYPE"
           
-          # Calculate new version manually
+          # Calculate new version manually with validation
+          if [[ ! "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Current version $CURRENT_VERSION does not match expected format (major.minor.patch)"
+            exit 1
+          fi
+          
           IFS='.' read -r -a VERSION_PARTS <<< "$CURRENT_VERSION"
           MAJOR=${VERSION_PARTS[0]}
           MINOR=${VERSION_PARTS[1]}
@@ -77,45 +95,109 @@ jobs:
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
           echo "New version: $NEW_VERSION"
           
-          # Update manifest version
-          sed -i "s/'version': '$CURRENT_VERSION'/'version': '$NEW_VERSION'/g" $MANIFEST_FILE
+          # Update manifest version with better pattern matching
+          if ! sed -i "s/'version':\s*'$CURRENT_VERSION'/'version': '$NEW_VERSION'/g" $MANIFEST_FILE; then
+            echo "Failed to update version in manifest file"
+            exit 1
+          fi
           
-          # Commit the version change
-          git add $MANIFEST_FILE
-          git commit -m "chore: bump version to $NEW_VERSION"
+          # Verify the change was made
+          if ! grep -q "'version': '$NEW_VERSION'" $MANIFEST_FILE; then
+            echo "Version update verification failed. Trying alternative pattern."
+            # Try an alternative pattern
+            sed -i "s/\"version\":\s*\"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/g" $MANIFEST_FILE
+          fi
           
-          # Create tag
-          git tag "v$NEW_VERSION"
-          
-          # Set outputs for next steps
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          # Check if there are changes to commit
+          if ! git diff --quiet $MANIFEST_FILE; then
+            # Commit the version change
+            git add $MANIFEST_FILE
+            git commit -m "chore: bump version to $NEW_VERSION"
+            
+            # Create tag
+            git tag "v$NEW_VERSION"
+            
+            # Set outputs for next steps
+            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "No changes detected in manifest file. Version might already be updated."
+            exit 1
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Push changes
-        run: git push --follow-tags origin ${{ github.ref_name }}
-        
+        run: |
+          echo "Pushing changes to branch ${{ github.ref_name }}"
+          # Make sure we have the latest changes
+          git pull --rebase origin ${{ github.ref_name }} || echo "Warning: Could not rebase, continuing anyway"
+          
+          # Try to push changes, with retry logic
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          PUSH_SUCCESS=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$PUSH_SUCCESS" != "true" ]; do
+            if git push --follow-tags origin ${{ github.ref_name }}; then
+              PUSH_SUCCESS=true
+              echo "Successfully pushed changes to ${{ github.ref_name }}"
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "Push failed, retrying in 5 seconds (attempt $RETRY_COUNT of $MAX_RETRIES)..."
+                sleep 5
+                # Pull again before retrying
+                git pull --rebase origin ${{ github.ref_name }} || echo "Warning: Could not rebase before retry"
+              else
+                echo "Failed to push changes after $MAX_RETRIES attempts"
+                exit 1
+              fi
+            fi
+          done
+      
       - name: Generate Changelog
         id: changelog
         run: |
           TAG=${{ steps.bump.outputs.tag }}
           VERSION=${{ steps.bump.outputs.new_version }}
           
-          # Get PR details
+          # Validate outputs from previous step
+          if [ -z "$TAG" ] || [ -z "$VERSION" ]; then
+            echo "Error: Missing tag or version from previous step"
+            echo "TAG: $TAG"
+            echo "VERSION: $VERSION"
+            # Don't exit with error, try to continue with fallback values
+            if [ -z "$VERSION" ]; then
+              # Try to get version from the latest tag
+              VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//' || echo "unknown")
+              echo "Using fallback VERSION: $VERSION"
+            fi
+            if [ -z "$TAG" ]; then
+              TAG="v$VERSION"
+              echo "Using fallback TAG: $TAG"
+            fi
+          fi
+          
+          # Get PR details with error handling
           PR_NUMBER=${{ github.event.pull_request.number }}
           PR_TITLE="${{ github.event.pull_request.title }}"
           PR_BODY="${{ github.event.pull_request.body }}"
           PR_URL="${{ github.event.pull_request.html_url }}"
           
+          echo "Generating changelog for version $VERSION (tag $TAG)"
+          echo "PR: #$PR_NUMBER - $PR_TITLE"
+          
           # Generate changelog from commits since last tag
           PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "Previous tag: $PREVIOUS_TAG"
           
           echo "# Release v$VERSION" > changelog.md
           echo "" >> changelog.md
           
           # Check for manual release notes
           if [ -f "RELEASE_NOTES.md" ]; then
+            echo "Found RELEASE_NOTES.md, including in changelog"
             echo "## Release Notes" >> changelog.md
             cat RELEASE_NOTES.md >> changelog.md
             echo "" >> changelog.md
@@ -136,15 +218,16 @@ jobs:
           
           if [ -z "$PREVIOUS_TAG" ]; then
             # First release - get all commits
+            echo "No previous tag found, including all commits"
             echo "## Changes" >> changelog.md
-            git log --pretty=format:"* %s" ${TAG} | grep -v "chore: bump version" | grep -v "Merge pull request" >> changelog.md
+            git log --pretty=format:"* %s" ${TAG} 2>/dev/null | grep -v "chore: bump version" | grep -v "Merge pull request" >> changelog.md || echo "* Initial release" >> changelog.md
           else
             # Group changes by type
             echo "## Changes since $PREVIOUS_TAG" >> changelog.md
             echo "" >> changelog.md
             
             # Features
-            FEATURES=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" | grep "^* feat")
+            FEATURES=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" 2>/dev/null | grep "^* feat" || echo "")
             if [ ! -z "$FEATURES" ]; then
               echo "### ✨ New Features" >> changelog.md
               echo "$FEATURES" >> changelog.md
@@ -152,7 +235,7 @@ jobs:
             fi
             
             # Fixes
-            FIXES=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" | grep "^* fix")
+            FIXES=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" 2>/dev/null | grep "^* fix" || echo "")
             if [ ! -z "$FIXES" ]; then
               echo "### 🐛 Bug Fixes" >> changelog.md
               echo "$FIXES" >> changelog.md
@@ -160,16 +243,25 @@ jobs:
             fi
             
             # Other changes - excluding PR merges and version bumps
-            OTHER=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" | 
+            OTHER=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" 2>/dev/null | 
                    grep -v "^* feat" | 
                    grep -v "^* fix" | 
                    grep -v "chore: bump version" | 
-                   grep -v "Merge pull request")
+                   grep -v "Merge pull request" || echo "")
             if [ ! -z "$OTHER" ]; then
               echo "### 🔄 Other Changes" >> changelog.md
               echo "$OTHER" >> changelog.md
             fi
+            
+            # If no changes were found, add a default message
+            if [ -z "$FEATURES" ] && [ -z "$FIXES" ] && [ -z "$OTHER" ]; then
+              echo "### Changes" >> changelog.md
+              echo "* Maintenance release" >> changelog.md
+            fi
           fi
+          
+          echo "Generated changelog:"
+          cat changelog.md
           
           # Output changelog for GitHub Actions
           echo "changelog<<EOF" >> $GITHUB_OUTPUT
