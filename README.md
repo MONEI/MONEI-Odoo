@@ -88,7 +88,7 @@ Make sure that you have at least one active [payment method](https://dashboard.m
    - Select a date range to import payments from that period
    - The module will import all MONEI payments within the selected dates
 
-2. **Syncing Process**
+2. **Manual Syncing Process**
    - Go to MONEI > Payments
    - Click the "Sync Payments" button
    - Select start and end dates for the sync
@@ -97,7 +97,11 @@ Make sure that you have at least one active [payment method](https://dashboard.m
      - Update existing payment information
      - Show a summary of changes when complete
 
-3. **Order Matching**
+3. **Automatic Syncing**
+   - The module will automatically sync payments based on the configured interval
+   - The sync interval is set in the MONEI > Configuration or Settings > MONEI configuration screen
+
+4. **Order Matching**
    - Payments are automatically linked to sale orders using the order reference
    - Each payment's order reference is matched to a sale order number
    - View linked payments directly from the sale order form
