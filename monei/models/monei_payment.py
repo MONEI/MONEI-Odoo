@@ -2,10 +2,11 @@ from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 import json
 import logging
-from ..graphql.queries import STORES_QUERY, CHARGES_QUERY
+from ..graphql.queries import CHARGE_QUERY, STORES_QUERY, CHARGES_QUERY
 from ..services.api_service import MoneiAPIService
 from markupsafe import Markup
 from ..graphql.mutations import CANCEL_PAYMENT_MUTATION, REFUND_PAYMENT_MUTATION, CAPTURE_PAYMENT_MUTATION
+from datetime import datetime, timedelta
 
 _logger = logging.getLogger(__name__)
 
@@ -299,18 +300,40 @@ class MoneiPayment(models.Model):
         help='Link to view the payment in MONEI Dashboard'
     )
 
-    @api.model
-    def create(self, vals):
-        """Override to auto-link with sale order and sync information"""
-        res = super().create(vals)
-        if res.order_id:
-            sale_order = self.env['sale.order'].search([
-                ('name', '=', res.order_id)
-            ], limit=1)
-            if sale_order:
-                res.sale_order_id = sale_order.id
-                res._sync_order_information(sale_order)
-        return res
+    # Add sync field to trigger sync on form open
+    sync_status = fields.Char(
+        string='Sync Status',
+        compute='_action_sync_single_payment',
+        store=False
+    )
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Override to auto-link with sale order and sync information
+        
+        Args:
+            vals_list (list): List of dictionaries containing values for creation
+            
+        Returns:
+            recordset: Created records
+        """
+        # Ensure vals_list is a list
+        if not isinstance(vals_list, list):
+            vals_list = [vals_list]
+
+        records = super().create(vals_list)
+        
+        # Process each created record
+        for record in records:
+            if record.order_id:
+                sale_order = self.env['sale.order'].search([
+                    ('name', '=', record.order_id)
+                ], limit=1)
+                if sale_order:
+                    record.sale_order_id = sale_order.id
+                    record._sync_order_information(sale_order)
+        
+        return records
 
     @api.depends('payment_method', 'customer_phone', 'bizum_phone', 'customer_email', 
                 'paypal_email', 'cardholder_email', 'customer_name')
@@ -376,15 +399,34 @@ class MoneiPayment(models.Model):
             record.last_refund_reason_display = refund_selection.get(record.last_refund_reason, '')
 
     @api.model
-    def action_sync_payments(self, date_from=None, date_to=None):
+    def action_sync_payments(self, date_from=None, date_to=None, is_cron=False):
+        """Sync payments from MONEI API
+        Args:
+            date_from (datetime, optional): Start date for sync. Defaults to None.
+            date_to (datetime, optional): End date for sync. Defaults to None.
+            is_cron (bool, optional): Whether this is called from cron. If True and no dates specified,
+                                    will sync last 24 hours. Defaults to False.
+        """
         api_service = MoneiAPIService(self.env)
-        self._log_info('Syncing payments from MONEI API')
+        self._log_info('Starting MONEI payment sync')
+        self._log_info(f'Sync mode: {"Cron" if is_cron else "Manual"}')
 
         try:
+            # If cron mode and no dates specified, set date range to last 24 hours
+            if is_cron:
+                date_from = fields.Datetime.subtract(fields.Datetime.now(), days=1)
+                date_to = fields.Datetime.now()
+                self._log_info(f'Cron mode: syncing from {date_from} to {date_to}')
+            elif date_from or date_to:
+                self._log_info(f'Date range: from {date_from or "beginning"} to {date_to or "now"}')
+            else:
+                self._log_info('No date range specified - syncing all payments')
+
             # Get stores data once at the beginning
             stores_response = api_service.execute_query(STORES_QUERY)
             stores = stores_response['data']['stores'].get('items', []) or []
             stores_by_id = {store['id']: store['name'] for store in stores}
+            self._log_info(f'Found {len(stores)} stores to process')
 
             # Initialize counters for total operation
             total_added = 0
@@ -397,6 +439,8 @@ class MoneiPayment(models.Model):
             
             def sync_batch(start_from=0):
                 nonlocal total_added, total_updated, total_skipped
+                
+                self._log_info(f'Processing batch starting from offset {start_from}')
                 
                 # Build filter parts
                 filter_parts = []
@@ -427,12 +471,18 @@ class MoneiPayment(models.Model):
                     payments = response_data['data']['charges'].get('items', []) or []
                     total_payments = response_data['data']['charges']['total']
                     
+                    self._log_info(f'Retrieved {len(payments)} payments from API (Total available: {total_payments})')
+                    
                     # Add payment IDs to synced set
+                    batch_payment_ids = []
                     for payment in payments:
                         if payment and isinstance(payment, dict):
                             payment_id = payment.get('id')
                             if payment_id:
                                 synced_payment_ids.add(payment_id)
+                                batch_payment_ids.append(payment_id)
+                    
+                    self._log_info(f'Processing {len(batch_payment_ids)} valid payments from current batch')
                     
                     # Process current batch with stores data from closure
                     added, updated, skipped = self._process_payment_batch(payments, stores_by_id)
@@ -441,10 +491,16 @@ class MoneiPayment(models.Model):
                     total_updated += updated
                     total_skipped += skipped
                     
+                    self._log_info(f'Batch results - Added: {added}, Updated: {updated}, Skipped: {skipped}')
+                    
                     # If we got a full batch (1000 payments), there might be more
                     if len(payments) == 1000 and (start_from + len(payments)) < total_payments:
+                        next_batch = start_from + len(payments)
+                        self._log_info(f'Batch complete, moving to next batch at offset {next_batch}')
                         # Recursive call for next batch
-                        sync_batch(start_from + len(payments))
+                        sync_batch(next_batch)
+                    else:
+                        self._log_info('No more batches to process')
             
             # Start the sync process
             sync_batch()
@@ -456,11 +512,25 @@ class MoneiPayment(models.Model):
             if date_to:
                 domain.append(('payment_date', '<=', date_to))
             
+            self._log_info('Checking for obsolete payments...')
+            
             payments_to_delete = self.search(domain)
             if payments_to_delete:
                 total_deleted = len(payments_to_delete)
-                self._log_info(f'Deleting {total_deleted} payments that no longer exist in MONEI')
+                payment_details = [
+                    f"- {payment.name} ({payment.payment_date.strftime('%Y-%m-%d %H:%M:%S')})"
+                    for payment in payments_to_delete
+                ]
+                self._log_info(f'Found {total_deleted} payment(s) no longer in MONEI:')
+                for detail in payment_details:
+                    self._log_info(detail)
                 payments_to_delete.unlink()
+                self._log_info(f'Successfully removed {total_deleted} obsolete payment(s)')
+            else:
+                self._log_info('No obsolete payments found')
+            
+            # Log final totals
+            self._log_info(f'Sync complete - Total Added: {total_added}, Updated: {total_updated}, Skipped: {total_skipped}, Deleted: {total_deleted}')
             
             # Prepare result message
             message = []
@@ -491,23 +561,241 @@ class MoneiPayment(models.Model):
             }
 
         except Exception as e:
-            self._log_error(f'Failed to sync payments: {e}')
-            raise UserError(_('Failed to sync payments: %s') % str(e))
+            error_msg = f'Failed to sync payments: {str(e)}'
+            self._log_error(error_msg)
+            raise UserError(_(error_msg))
+
+    def _prepare_payment_vals(self, payment_data):
+        """Prepare payment values from API data"""
+        # Get card details if available
+        card_data = self._safe_get(payment_data, 'paymentMethod', 'card') or {}
+        
+        # Safely convert amounts, defaulting to 0 if None
+        amount = payment_data.get('amount')
+        amount = float(amount if amount is not None else 0) / 100.0
+        
+        refunded_amount = payment_data.get('refundedAmount')
+        refunded_amount = float(refunded_amount if refunded_amount is not None else 0) / 100.0
+        
+        last_refund_amount = payment_data.get('lastRefundAmount')
+        last_refund_amount = float(last_refund_amount if last_refund_amount is not None else 0) / 100.0
+
+        return {
+            'name': payment_data.get('id'),
+            'order_id': payment_data.get('orderId'),
+            'checkout_id': payment_data.get('checkoutId'),
+            'authorization_code': payment_data.get('authorizationCode'),
+            'livemode': payment_data.get('livemode', False),
+            
+            'amount': amount,
+            'currency': payment_data.get('currency', ''),
+            'refunded_amount': refunded_amount,
+            'last_refund_amount': last_refund_amount,
+            'last_refund_reason': payment_data.get('lastRefundReason'),
+            
+            'status': payment_data.get('status', 'PENDING'),
+            'status_code': str(payment_data.get('statusCode', '')),
+            'status_message': payment_data.get('statusMessage', ''),
+            'cancellation_reason': payment_data.get('cancellationReason', ''),
+            
+            'payment_date': self._parse_datetime(payment_data.get('createdAt')),
+            'updated_at': self._parse_datetime(payment_data.get('updatedAt')),
+            'page_opened_at': self._parse_datetime(payment_data.get('pageOpenedAt')),
+            
+            'account_id': payment_data.get('accountId', ''),
+            'store_id': payment_data.get('storeId'),
+            'subscription_id': payment_data.get('subscriptionId', ''),
+            'terminal_id': payment_data.get('terminalId', ''),
+            'provider_id': payment_data.get('providerId', ''),
+            'provider_internal_id': payment_data.get('providerInternalId', ''),
+            'provider_reference_id': payment_data.get('providerReferenceId', ''),
+            'point_of_sale_id': payment_data.get('pointOfSaleId', ''),
+            'sequence_id': payment_data.get('sequenceId', ''),
+            'description': payment_data.get('description', ''),
+            'descriptor': payment_data.get('descriptor', ''),
+            
+            'customer_name': self._safe_get(payment_data, 'customer', 'name', default=''),
+            'customer_email': self._safe_get(payment_data, 'customer', 'email', default=''),
+            'customer_phone': self._safe_get(payment_data, 'customer', 'phone', default=''),
+            'payment_method': self._safe_get(payment_data, 'paymentMethod', 'method', default=''),
+            
+            'shipping_name': self._safe_get(payment_data, 'shippingDetails', 'name', default=''),
+            'shipping_email': self._safe_get(payment_data, 'shippingDetails', 'email', default=''),
+            'shipping_phone': self._safe_get(payment_data, 'shippingDetails', 'phone', default=''),
+            'shipping_company': self._safe_get(payment_data, 'shippingDetails', 'company', default=''),
+            'shipping_tax_id': self._safe_get(payment_data, 'shippingDetails', 'taxId', default=''),
+            'shipping_street': self._safe_get(payment_data, 'shippingDetails', 'address', 'line1', default=''),
+            'shipping_street2': self._safe_get(payment_data, 'shippingDetails', 'address', 'line2', default=''),
+            'shipping_city': self._safe_get(payment_data, 'shippingDetails', 'address', 'city', default=''),
+            'shipping_state': self._safe_get(payment_data, 'shippingDetails', 'address', 'state', default=''),
+            'shipping_zip': self._safe_get(payment_data, 'shippingDetails', 'address', 'zip', default=''),
+            'shipping_country': self._safe_get(payment_data, 'shippingDetails', 'address', 'country', default=''),
+            
+            'billing_name': self._safe_get(payment_data, 'billingDetails', 'name', default=''),
+            'billing_email': self._safe_get(payment_data, 'billingDetails', 'email', default=''),
+            'billing_phone': self._safe_get(payment_data, 'billingDetails', 'phone', default=''),
+            'billing_company': self._safe_get(payment_data, 'billingDetails', 'company', default=''),
+            'billing_tax_id': self._safe_get(payment_data, 'billingDetails', 'taxId', default=''),
+            'billing_street': self._safe_get(payment_data, 'billingDetails', 'address', 'line1', default=''),
+            'billing_street2': self._safe_get(payment_data, 'billingDetails', 'address', 'line2', default=''),
+            'billing_city': self._safe_get(payment_data, 'billingDetails', 'address', 'city', default=''),
+            'billing_state': self._safe_get(payment_data, 'billingDetails', 'address', 'state', default=''),
+            'billing_zip': self._safe_get(payment_data, 'billingDetails', 'address', 'zip', default=''),
+            'billing_country': self._safe_get(payment_data, 'billingDetails', 'address', 'country', default=''),
+            
+            # Card details
+            'card_brand': card_data.get('brand'),
+            'card_last4': card_data.get('last4'),
+            'card_type': card_data.get('type'),
+            'card_country': card_data.get('country'),
+            'cardholder_name': card_data.get('cardholderName'),
+            'cardholder_email': card_data.get('cardholderEmail'),
+            'card_expiration': card_data.get('expiration'),
+            'card_bank': card_data.get('bank'),
+            'tokenization_method': card_data.get('tokenizationMethod'),
+            'three_d_secure': card_data.get('threeDSecure'),
+            'three_d_secure_version': card_data.get('threeDSecureVersion'),
+            'three_d_secure_flow': card_data.get('threeDSecureFlow'),
+            
+            # Shop details
+            'shop_name': self._safe_get(payment_data, 'shop', 'name'),
+            'shop_country': self._safe_get(payment_data, 'shop', 'country'),
+
+            # Billing Plan
+            'billing_plan': payment_data.get('billingPlan'),
+
+            # Session Details
+            'session_ip': self._safe_get(payment_data, 'sessionDetails', 'ip'),
+            'session_user_agent': self._safe_get(payment_data, 'sessionDetails', 'userAgent'),
+            'session_country': self._safe_get(payment_data, 'sessionDetails', 'countryCode'),
+            'session_lang': self._safe_get(payment_data, 'sessionDetails', 'lang'),
+            'session_device_type': self._safe_get(payment_data, 'sessionDetails', 'deviceType'),
+            'session_device_model': self._safe_get(payment_data, 'sessionDetails', 'deviceModel'),
+            'session_browser': self._safe_get(payment_data, 'sessionDetails', 'browser'),
+            'session_browser_version': self._safe_get(payment_data, 'sessionDetails', 'browserVersion'),
+            'session_browser_accept': self._safe_get(payment_data, 'sessionDetails', 'browserAccept'),
+            'session_browser_color_depth': self._safe_get(payment_data, 'sessionDetails', 'browserColorDepth'),
+            'session_browser_screen_height': self._safe_get(payment_data, 'sessionDetails', 'browserScreenHeight'),
+            'session_browser_screen_width': self._safe_get(payment_data, 'sessionDetails', 'browserScreenWidth'),
+            'session_browser_timezone_offset': self._safe_get(payment_data, 'sessionDetails', 'browserTimezoneOffset'),
+            'session_os': self._safe_get(payment_data, 'sessionDetails', 'os'),
+            'session_os_version': self._safe_get(payment_data, 'sessionDetails', 'osVersion'),
+            'session_source': self._safe_get(payment_data, 'sessionDetails', 'source'),
+            'session_source_version': self._safe_get(payment_data, 'sessionDetails', 'sourceVersion'),
+
+            # Trace Details
+            'trace_ip': self._safe_get(payment_data, 'traceDetails', 'ip'),
+            'trace_user_agent': self._safe_get(payment_data, 'traceDetails', 'userAgent'),
+            'trace_country': self._safe_get(payment_data, 'traceDetails', 'countryCode'),
+            'trace_lang': self._safe_get(payment_data, 'traceDetails', 'lang'),
+            'trace_device_type': self._safe_get(payment_data, 'traceDetails', 'deviceType'),
+            'trace_device_model': self._safe_get(payment_data, 'traceDetails', 'deviceModel'),
+            'trace_browser': self._safe_get(payment_data, 'traceDetails', 'browser'),
+            'trace_browser_version': self._safe_get(payment_data, 'traceDetails', 'browserVersion'),
+            'trace_browser_accept': self._safe_get(payment_data, 'traceDetails', 'browserAccept'),
+            'trace_os': self._safe_get(payment_data, 'traceDetails', 'os'),
+            'trace_os_version': self._safe_get(payment_data, 'traceDetails', 'osVersion'),
+            'trace_source': self._safe_get(payment_data, 'traceDetails', 'source'),
+            'trace_source_version': self._safe_get(payment_data, 'traceDetails', 'sourceVersion'),
+            'trace_user_id': self._safe_get(payment_data, 'traceDetails', 'userId'),
+            'trace_user_email': self._safe_get(payment_data, 'traceDetails', 'userEmail'),
+            'trace_user_name': self._safe_get(payment_data, 'traceDetails', 'userName'),
+
+            # Metadata
+            'metadata': json.dumps(payment_data.get('metadata', [])),
+
+            # Payment Method Type and Details
+            'payment_method_type': self._safe_get(payment_data, 'paymentMethod', 'method'),
+
+            # PayPal Details
+            'paypal_order_id': self._safe_get(payment_data, 'paymentMethod', 'paypal', 'orderId'),
+            'paypal_payer_id': self._safe_get(payment_data, 'paymentMethod', 'paypal', 'payerId'),
+            'paypal_email': self._safe_get(payment_data, 'paymentMethod', 'paypal', 'email'),
+            'paypal_name': self._safe_get(payment_data, 'paymentMethod', 'paypal', 'name'),
+
+            # Bizum Details
+            'bizum_phone': self._safe_get(payment_data, 'paymentMethod', 'bizum', 'phoneNumber'),
+            'bizum_integration_type': self._safe_get(payment_data, 'paymentMethod', 'bizum', 'integrationType'),
+
+            # SEPA Details
+            'sepa_accountholder_name': self._safe_get(payment_data, 'paymentMethod', 'sepa', 'accountholderName'),
+            'sepa_accountholder_email': self._safe_get(payment_data, 'paymentMethod', 'sepa', 'accountholderEmail'),
+            'sepa_country_code': self._safe_get(payment_data, 'paymentMethod', 'sepa', 'countryCode'),
+            'sepa_bank_name': self._safe_get(payment_data, 'paymentMethod', 'sepa', 'bankName'),
+            'sepa_bank_code': self._safe_get(payment_data, 'paymentMethod', 'sepa', 'bankCode'),
+            'sepa_bic': self._safe_get(payment_data, 'paymentMethod', 'sepa', 'bic'),
+            'sepa_last4': self._safe_get(payment_data, 'paymentMethod', 'sepa', 'last4'),
+
+            # Klarna Details
+            'klarna_billing_category': self._safe_get(payment_data, 'paymentMethod', 'klarna', 'billingCategory'),
+            'klarna_auth_payment_method': self._safe_get(payment_data, 'paymentMethod', 'klarna', 'authPaymentMethod'),
+        }
+
+    def _needs_payment_update(self, payment_data):
+        """Check if payment needs to be updated based on updated_at timestamp.
+        
+        Args:
+            payment_data (dict): Payment data from API
+            
+        Returns:
+            bool: True if payment needs update, False otherwise
+        """
+        # Format the API datetime to match Odoo's format
+        api_updated_at = self._parse_datetime(payment_data.get('updatedAt'))
+        
+        # If API updated_at is newer than our record's updated_at, we need an update
+        if api_updated_at and (not self.updated_at or api_updated_at > self.updated_at):
+            self._log_info(f'Payment needs update: API timestamp {api_updated_at} is newer than record timestamp {self.updated_at}')
+            return True
+            
+        return False
+
+    @api.depends('name')
+    def _action_sync_single_payment(self):
+        """Sync a single payment from MONEI API"""
+        for record in self:
+            record.sync_status = 'synced'  # Default status
+            
+            if not record.name:
+                continue
+                
+            record._log_info(f'Syncing payment {record.name}')
+            
+            # Check if sync is disabled in settings
+            disable_sync = record.env['ir.config_parameter'].sudo().get_param('monei.disable_sync_on_load', 'False') == 'True'
+            
+            record._log_info(f'Sync disabled: {disable_sync}')
+            
+            if disable_sync:
+                record.sync_status = 'disabled'
+                continue
+                
+            api_service = MoneiAPIService(record.env)
+            
+            try:
+                response_data = api_service.execute_query(CHARGE_QUERY, {'id': record.name})
+                
+                if 'data' in response_data and 'charge' in response_data['data']:
+                    payment_data = response_data['data']['charge']
+                    if payment_data:
+                        if record._needs_payment_update(payment_data):
+                            vals = record._prepare_payment_vals(payment_data)
+                            record.write(vals)
+                            record._log_info(f'Payment {record.name} updated')
+                            record.sync_status = 'updated'
+                        else:
+                            record._log_info(f'Payment {record.name} unchanged')
+                            record.sync_status = 'unchanged'
+
+            except Exception as e:
+                record._log_error(f'Failed to sync payment {record.name}: {e}')
+                record.sync_status = 'error'
 
     def _process_payment_batch(self, payments, stores_by_id):
         """Process a batch of payments and return counters"""
         added = 0
         updated = 0
         skipped = 0
-        
-        def convert_amount_from_cents(amount):
-            """Convert amount from cents to currency units"""
-            if amount is None:
-                return 0.0
-            try:
-                return float(amount) / 100.0
-            except (ValueError, TypeError):
-                return 0.0
         
         for payment in payments:
             if not payment or not isinstance(payment, dict):
@@ -520,191 +808,12 @@ class MoneiPayment(models.Model):
                 continue
 
             try:
-                payment_date = self._parse_datetime(payment.get('createdAt'))
-                updated_at = self._parse_datetime(payment.get('updatedAt'))
-                page_opened_at = self._parse_datetime(payment.get('pageOpenedAt'))
-                
-                # Get card details if available
-                card_data = self._safe_get(payment, 'paymentMethod', 'card') or {}
-                
-                # Get store name from lookup
-                store_id = payment.get('storeId')
-                store_name = stores_by_id.get(store_id, '')
-                
-                # Convert amounts from cents to currency units
-                amount = convert_amount_from_cents(payment.get('amount'))
-                refunded_amount = convert_amount_from_cents(payment.get('refundedAmount'))
-                last_refund_amount = convert_amount_from_cents(payment.get('lastRefundAmount'))
-                
-                vals = {
-                    'name': payment_id,
-                    'order_id': payment.get('orderId'),
-                    'checkout_id': payment.get('checkoutId'),
-                    'authorization_code': payment.get('authorizationCode'),
-                    'livemode': payment.get('livemode', False),
-                    
-                    'amount': amount,
-                    'currency': payment.get('currency', ''),
-                    'refunded_amount': refunded_amount,
-                    'last_refund_amount': last_refund_amount,
-                    'last_refund_reason': payment.get('lastRefundReason'),
-                    
-                    'status': payment.get('status', 'PENDING'),
-                    'status_code': str(payment.get('statusCode', '')),
-                    'status_message': payment.get('statusMessage', ''),
-                    'cancellation_reason': payment.get('cancellationReason', ''),
-                    
-                    'payment_date': payment_date,
-                    'updated_at': updated_at,
-                    'page_opened_at': page_opened_at,
-                    
-                    'account_id': payment.get('accountId', ''),
-                    'store_id': store_id,
-                    'store_name': store_name,
-                    'subscription_id': payment.get('subscriptionId', ''),
-                    'terminal_id': payment.get('terminalId', ''),
-                    'provider_id': payment.get('providerId', ''),
-                    'provider_internal_id': payment.get('providerInternalId', ''),
-                    'provider_reference_id': payment.get('providerReferenceId', ''),
-                    'point_of_sale_id': payment.get('pointOfSaleId', ''),
-                    'sequence_id': payment.get('sequenceId', ''),
-                    'description': payment.get('description', ''),
-                    'descriptor': payment.get('descriptor', ''),
-                    'customer_name': self._safe_get(payment, 'customer', 'name', default=''),
-                    'customer_email': self._safe_get(payment, 'customer', 'email', default=''),
-                    'customer_phone': self._safe_get(payment, 'customer', 'phone', default=''),
-                    'payment_method': self._safe_get(payment, 'paymentMethod', 'method', default=''),
-                    'shipping_name': self._safe_get(payment, 'shippingDetails', 'name', default=''),
-                    'shipping_email': self._safe_get(payment, 'shippingDetails', 'email', default=''),
-                    'shipping_phone': self._safe_get(payment, 'shippingDetails', 'phone', default=''),
-                    'shipping_company': self._safe_get(payment, 'shippingDetails', 'company', default=''),
-                    'shipping_tax_id': self._safe_get(payment, 'shippingDetails', 'taxId', default=''),
-                    'shipping_street': self._safe_get(payment, 'shippingDetails', 'address', 'line1', default=''),
-                    'shipping_street2': self._safe_get(payment, 'shippingDetails', 'address', 'line2', default=''),
-                    'shipping_city': self._safe_get(payment, 'shippingDetails', 'address', 'city', default=''),
-                    'shipping_state': self._safe_get(payment, 'shippingDetails', 'address', 'state', default=''),
-                    'shipping_zip': self._safe_get(payment, 'shippingDetails', 'address', 'zip', default=''),
-                    'shipping_country': self._safe_get(payment, 'shippingDetails', 'address', 'country', default=''),
-                    'billing_name': self._safe_get(payment, 'billingDetails', 'name', default=''),
-                    'billing_email': self._safe_get(payment, 'billingDetails', 'email', default=''),
-                    'billing_phone': self._safe_get(payment, 'billingDetails', 'phone', default=''),
-                    'billing_company': self._safe_get(payment, 'billingDetails', 'company', default=''),
-                    'billing_tax_id': self._safe_get(payment, 'billingDetails', 'taxId', default=''),
-                    'billing_street': self._safe_get(payment, 'billingDetails', 'address', 'line1', default=''),
-                    'billing_street2': self._safe_get(payment, 'billingDetails', 'address', 'line2', default=''),
-                    'billing_city': self._safe_get(payment, 'billingDetails', 'address', 'city', default=''),
-                    'billing_state': self._safe_get(payment, 'billingDetails', 'address', 'state', default=''),
-                    'billing_zip': self._safe_get(payment, 'billingDetails', 'address', 'zip', default=''),
-                    'billing_country': self._safe_get(payment, 'billingDetails', 'address', 'country', default=''),
-                    
-                    # Card details
-                    'card_brand': card_data.get('brand'),
-                    'card_last4': card_data.get('last4'),
-                    'card_type': card_data.get('type'),
-                    'card_country': card_data.get('country'),
-                    'cardholder_name': card_data.get('cardholderName'),
-                    'cardholder_email': card_data.get('cardholderEmail'),
-                    'card_expiration': card_data.get('expiration'),
-                    'card_bank': card_data.get('bank'),
-                    'tokenization_method': card_data.get('tokenizationMethod'),
-                    'three_d_secure': card_data.get('threeDSecure'),
-                    'three_d_secure_version': card_data.get('threeDSecureVersion'),
-                    'three_d_secure_flow': card_data.get('threeDSecureFlow'),
-                    
-                    # Shop details
-                    'shop_name': self._safe_get(payment, 'shop', 'name'),
-                    'shop_country': self._safe_get(payment, 'shop', 'country'),
-
-                    # Billing Plan
-                    'billing_plan': payment.get('billingPlan'),
-
-                    # Session Details
-                    'session_ip': self._safe_get(payment, 'sessionDetails', 'ip'),
-                    'session_user_agent': self._safe_get(payment, 'sessionDetails', 'userAgent'),
-                    'session_country': self._safe_get(payment, 'sessionDetails', 'countryCode'),
-                    'session_lang': self._safe_get(payment, 'sessionDetails', 'lang'),
-                    'session_device_type': self._safe_get(payment, 'sessionDetails', 'deviceType'),
-                    'session_device_model': self._safe_get(payment, 'sessionDetails', 'deviceModel'),
-                    'session_browser': self._safe_get(payment, 'sessionDetails', 'browser'),
-                    'session_browser_version': self._safe_get(payment, 'sessionDetails', 'browserVersion'),
-                    'session_browser_accept': self._safe_get(payment, 'sessionDetails', 'browserAccept'),
-                    'session_browser_color_depth': self._safe_get(payment, 'sessionDetails', 'browserColorDepth'),
-                    'session_browser_screen_height': self._safe_get(payment, 'sessionDetails', 'browserScreenHeight'),
-                    'session_browser_screen_width': self._safe_get(payment, 'sessionDetails', 'browserScreenWidth'),
-                    'session_browser_timezone_offset': self._safe_get(payment, 'sessionDetails', 'browserTimezoneOffset'),
-                    'session_os': self._safe_get(payment, 'sessionDetails', 'os'),
-                    'session_os_version': self._safe_get(payment, 'sessionDetails', 'osVersion'),
-                    'session_source': self._safe_get(payment, 'sessionDetails', 'source'),
-                    'session_source_version': self._safe_get(payment, 'sessionDetails', 'sourceVersion'),
-
-                    # Trace Details
-                    'trace_ip': self._safe_get(payment, 'traceDetails', 'ip'),
-                    'trace_user_agent': self._safe_get(payment, 'traceDetails', 'userAgent'),
-                    'trace_country': self._safe_get(payment, 'traceDetails', 'countryCode'),
-                    'trace_lang': self._safe_get(payment, 'traceDetails', 'lang'),
-                    'trace_device_type': self._safe_get(payment, 'traceDetails', 'deviceType'),
-                    'trace_device_model': self._safe_get(payment, 'traceDetails', 'deviceModel'),
-                    'trace_browser': self._safe_get(payment, 'traceDetails', 'browser'),
-                    'trace_browser_version': self._safe_get(payment, 'traceDetails', 'browserVersion'),
-                    'trace_browser_accept': self._safe_get(payment, 'traceDetails', 'browserAccept'),
-                    'trace_os': self._safe_get(payment, 'traceDetails', 'os'),
-                    'trace_os_version': self._safe_get(payment, 'traceDetails', 'osVersion'),
-                    'trace_source': self._safe_get(payment, 'traceDetails', 'source'),
-                    'trace_source_version': self._safe_get(payment, 'traceDetails', 'sourceVersion'),
-                    'trace_user_id': self._safe_get(payment, 'traceDetails', 'userId'),
-                    'trace_user_email': self._safe_get(payment, 'traceDetails', 'userEmail'),
-                    'trace_user_name': self._safe_get(payment, 'traceDetails', 'userName'),
-
-                    # Metadata
-                    'metadata': json.dumps(payment.get('metadata', [])),
-
-                    # Payment Method Type and Details
-                    'payment_method_type': self._safe_get(payment, 'paymentMethod', 'method'),
-
-                    # PayPal Details
-                    'paypal_order_id': self._safe_get(payment, 'paymentMethod', 'paypal', 'orderId'),
-                    'paypal_payer_id': self._safe_get(payment, 'paymentMethod', 'paypal', 'payerId'),
-                    'paypal_email': self._safe_get(payment, 'paymentMethod', 'paypal', 'email'),
-                    'paypal_name': self._safe_get(payment, 'paymentMethod', 'paypal', 'name'),
-
-                    # Bizum Details
-                    'bizum_phone': self._safe_get(payment, 'paymentMethod', 'bizum', 'phoneNumber'),
-                    'bizum_integration_type': self._safe_get(payment, 'paymentMethod', 'bizum', 'integrationType'),
-
-                    # SEPA Details
-                    'sepa_accountholder_name': self._safe_get(payment, 'paymentMethod', 'sepa', 'accountholderName'),
-                    'sepa_accountholder_email': self._safe_get(payment, 'paymentMethod', 'sepa', 'accountholderEmail'),
-                    'sepa_country_code': self._safe_get(payment, 'paymentMethod', 'sepa', 'countryCode'),
-                    'sepa_bank_name': self._safe_get(payment, 'paymentMethod', 'sepa', 'bankName'),
-                    'sepa_bank_code': self._safe_get(payment, 'paymentMethod', 'sepa', 'bankCode'),
-                    'sepa_bic': self._safe_get(payment, 'paymentMethod', 'sepa', 'bic'),
-                    'sepa_last4': self._safe_get(payment, 'paymentMethod', 'sepa', 'last4'),
-
-                    # Klarna Details
-                    'klarna_billing_category': self._safe_get(payment, 'paymentMethod', 'klarna', 'billingCategory'),
-                    'klarna_auth_payment_method': self._safe_get(payment, 'paymentMethod', 'klarna', 'authPaymentMethod'),
-                }
+                vals = self._prepare_payment_vals(payment)
+                vals['store_name'] = stores_by_id.get(payment.get('storeId'), '')
 
                 existing = self.search([('name', '=', payment_id)])
                 if existing:
-                    # Fields that should trigger an update when changed
-                    update_fields = {
-                        'status': payment.get('status'),
-                        'status_code': str(payment.get('statusCode', '')),
-                        'payment_method': self._safe_get(payment, 'paymentMethod', 'method'),
-                        'payment_method_type': self._safe_get(payment, 'paymentMethod', 'method'),
-                        'refunded_amount': refunded_amount,
-                        'updated_at': updated_at,
-                    }
-                    
-                    # Check if any relevant field has changed
-                    needs_update = False
-                    for field, value in update_fields.items():
-                        if existing[field] != value:
-                            needs_update = True
-                            break
-                    
-                    if needs_update:
+                    if existing._needs_payment_update(payment):
                         existing.write(vals)
                         updated += 1
                     else:
@@ -717,7 +826,7 @@ class MoneiPayment(models.Model):
                 self._log_error(f'Error processing payment {payment_id}: {e}')
                 continue
         
-        return added, updated, skipped 
+        return added, updated, skipped
 
     def action_capture_payment(self):
         self.ensure_one()

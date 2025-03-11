@@ -16,8 +16,16 @@ class MoneiAPIService:
         self.version = '.'.join(str(x) for x in self.version)
 
     def _get_api_url(self, subdomain='graphql'):
-        """Get API URL with specified subdomain"""
-        return self.env['res.config.settings']._get_api_url(subdomain)
+        """Get the API URL
+        
+        Args:
+            subdomain (str): The subdomain to use (default: graphql)
+                           Examples: graphql, dashboard
+        
+        Returns:
+            str: The complete API URL
+        """
+        return f'https://{subdomain}.monei.com'
 
     def _get_payment_url(self, payment_id):
         """Get payment dashboard URL"""
@@ -30,15 +38,23 @@ class MoneiAPIService:
             raise UserError(_('Please configure MONEI API Key first'))
         return api_key
 
-    def _make_request(self, data):
-        """Make a request to the MONEI API"""
+    def _make_request(self, data, api_key=None):
+        """Make a request to the MONEI API
+        
+        Args:
+            data (dict): The request data
+            api_key (str, optional): API key to use. If not provided, uses the configured one.
+        """
         try:
             self.mixin._log_debug(f"Making API request:\n{json.dumps(data, indent=2)}")
+
+            # Use provided API key or get from config
+            key_to_use = api_key or self._get_api_key()
 
             response = requests.post(
                 self._get_api_url(),
                 headers={
-                    'Authorization': f'Bearer {self._get_api_key()}',
+                    'Authorization': f'Bearer {key_to_use}',
                     'Content-Type': 'application/json',
                     'User-Agent': f'MONEI/Odoo/{self.version}'
                 },
@@ -61,21 +77,21 @@ class MoneiAPIService:
             self.mixin._log_error(f'API request failed: {e}')
             raise UserError(_('API request failed: %s') % str(e))
 
-    def execute_query(self, query, variables=None):
+    def execute_query(self, query, variables=None, api_key=None):
         """Execute a GraphQL query"""
         data = {
             'query': query,
             'variables': variables or {}
         }
-        return self._make_request(data)
+        return self._make_request(data, api_key)
 
-    def execute_mutation(self, mutation, variables=None):
+    def execute_mutation(self, mutation, variables=None, api_key=None):
         """Execute a GraphQL mutation"""
         data = {
             'query': mutation,
             'variables': variables or {}
         }
-        return self._make_request(data)
+        return self._make_request(data, api_key)
 
     def test_connection(self, api_key=None):
         """Test connection to MONEI API
@@ -86,25 +102,24 @@ class MoneiAPIService:
         Raises:
             UserError: If connection fails, API key is invalid, or response format is incorrect
         """
-        if api_key is None:
-            api_key = self._get_api_key()
-        
         try:
+            self.mixin._log_debug(f"Testing connection with API key: {api_key}")
+            
             response = self.execute_query("""
                 query Account {
                     account {
-                    apiKey
+                        apiKey
+                    }
                 }
-            }
-            """)
-        
-            self.mixin._log_debug(f"Test connection response:\n{json.dumps(response, indent=2)}")
+            """, api_key=api_key)
             
             if 'data' in response and 'account' in response['data']:
                 returned_api_key = response['data']['account'].get('apiKey')
                 if returned_api_key != api_key:
                     raise UserError(_('API Key mismatch'))
             else:
-                raise UserError(_('Invalid response format from server')) 
+                raise UserError(_('Invalid response format from server'))
+                
         except Exception as e:
-            raise UserError(_('Connection test failed'))
+            self.mixin._log_error(f'Connection test failed: {e}')
+            raise UserError(_('Connection test failed: %s') % str(e))
