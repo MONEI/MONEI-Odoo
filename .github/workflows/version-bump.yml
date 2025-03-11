@@ -29,6 +29,10 @@ jobs:
       - name: Bump version
         id: bump
         run: |
+          # Extract Odoo version from branch name
+          ODOO_VERSION=$(echo "${{ github.ref_name }}" | grep -oE '[0-9]+\.[0-9]+')
+          echo "Odoo version: $ODOO_VERSION"
+          
           # Get current version from manifest
           MANIFEST_FILE=$(find . -name "__manifest__.py" | head -1)
           if [ -z "$MANIFEST_FILE" ]; then
@@ -114,12 +118,14 @@ jobs:
             git add $MANIFEST_FILE
             git commit -m "chore: bump version to $NEW_VERSION"
             
-            # Create tag
-            git tag "v$NEW_VERSION"
+            # Create tag with Odoo version
+            TAG="v$NEW_VERSION-odoo$ODOO_VERSION"
+            git tag "$TAG"
             
             # Set outputs for next steps
             echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-            echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "odoo_version=$ODOO_VERSION" >> $GITHUB_OUTPUT
           else
             echo "No changes detected in manifest file. Version might already be updated."
             exit 1
@@ -161,4 +167,5 @@ jobs:
           echo "Version bump completed successfully!"
           echo "New version: ${{ steps.bump.outputs.new_version }}"
           echo "New tag: ${{ steps.bump.outputs.tag }}"
+          echo "Odoo version: ${{ steps.bump.outputs.odoo_version }}"
           echo "The release workflow will now be triggered to create a GitHub release." 
