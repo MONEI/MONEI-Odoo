@@ -1,4 +1,4 @@
-name: Version Bump
+name: Version Bump and Release
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
     branches: ['16.0', '17.0', '18.0']
 
 jobs:
-  bump:
+  bump-and-release:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
@@ -27,35 +27,171 @@ jobs:
           git config --local user.name "GitHub Action"
           
       - name: Bump version
+        id: bump
         run: |
           # Get current version from manifest
-          CURRENT_VERSION=$(grep "version': '" monei/__manifest__.py | cut -d"'" -f4)
+          MANIFEST_FILE=$(find . -name "__manifest__.py" | head -1)
+          if [ -z "$MANIFEST_FILE" ]; then
+            echo "No __manifest__.py file found"
+            exit 1
+          fi
+          
+          CURRENT_VERSION=$(grep "version': '" $MANIFEST_FILE | cut -d"'" -f4)
+          echo "Current version: $CURRENT_VERSION"
           
           # Analyze PR commits to determine bump type
           COMMITS=$(gh pr view ${{ github.event.pull_request.number }} --json commits --jq '.commits[].messageHeadline')
+          echo "Commits in PR:"
+          echo "$COMMITS"
           
-          # Determine version bump type
+          # Determine version bump type - fixed to avoid subshell variable scope issues
           BUMP_TYPE="patch"  # default to patch
-          echo "$COMMITS" | while read -r commit; do
-            if echo "$commit" | grep -q "^feat"; then
-              BUMP_TYPE="minor"
-            elif echo "$commit" | grep -q "BREAKING CHANGE"; then
-              BUMP_TYPE="major"
-              break
-            fi
-          done
           
-          # Run standard-version with determined bump type
-          standard-version --release-as $BUMP_TYPE --skip.tag --skip.changelog
+          # Check for breaking changes first (highest priority)
+          if echo "$COMMITS" | grep -q "BREAKING CHANGE"; then
+            BUMP_TYPE="major"
+          # Then check for features
+          elif echo "$COMMITS" | grep -q "^feat"; then
+            BUMP_TYPE="minor"
+          fi
           
-          # Get new version
-          NEW_VERSION=$(grep '"version":' package.json | cut -d'"' -f4)
+          echo "Bump type determined: $BUMP_TYPE"
+          
+          # Calculate new version manually
+          IFS='.' read -r -a VERSION_PARTS <<< "$CURRENT_VERSION"
+          MAJOR=${VERSION_PARTS[0]}
+          MINOR=${VERSION_PARTS[1]}
+          PATCH=${VERSION_PARTS[2]}
+          
+          if [ "$BUMP_TYPE" == "major" ]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif [ "$BUMP_TYPE" == "minor" ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+          
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          echo "New version: $NEW_VERSION"
           
           # Update manifest version
-          sed -i "s/'version': '$CURRENT_VERSION'/'version': '$NEW_VERSION'/g" monei/__manifest__.py
+          sed -i "s/'version': '$CURRENT_VERSION'/'version': '$NEW_VERSION'/g" $MANIFEST_FILE
           
-          # Create tag and push
+          # Commit the version change
+          git add $MANIFEST_FILE
+          git commit -m "chore: bump version to $NEW_VERSION"
+          
+          # Create tag
           git tag "v$NEW_VERSION"
-          git push --follow-tags origin ${{ github.ref_name }}
+          
+          # Set outputs for next steps
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Push changes
+        run: git push --follow-tags origin ${{ github.ref_name }}
+        
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          TAG=${{ steps.bump.outputs.tag }}
+          VERSION=${{ steps.bump.outputs.new_version }}
+          
+          # Get PR details
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          
+          # Generate changelog from commits since last tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          echo "# Release v$VERSION" > changelog.md
+          echo "" >> changelog.md
+          
+          # Check for manual release notes
+          if [ -f "RELEASE_NOTES.md" ]; then
+            echo "## Release Notes" >> changelog.md
+            cat RELEASE_NOTES.md >> changelog.md
+            echo "" >> changelog.md
+          fi
+          
+          # Add PR information if available
+          if [ ! -z "$PR_TITLE" ]; then
+            echo "## Pull Request" >> changelog.md
+            echo "[$PR_TITLE]($PR_URL) (#$PR_NUMBER)" >> changelog.md
+            echo "" >> changelog.md
+            
+            if [ ! -z "$PR_BODY" ]; then
+              echo "### Description" >> changelog.md
+              echo "$PR_BODY" >> changelog.md
+              echo "" >> changelog.md
+            fi
+          fi
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            # First release - get all commits
+            echo "## Changes" >> changelog.md
+            git log --pretty=format:"* %s" ${TAG} | grep -v "chore: bump version" | grep -v "Merge pull request" >> changelog.md
+          else
+            # Group changes by type
+            echo "## Changes since $PREVIOUS_TAG" >> changelog.md
+            echo "" >> changelog.md
+            
+            # Features
+            FEATURES=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" | grep "^* feat")
+            if [ ! -z "$FEATURES" ]; then
+              echo "### ✨ New Features" >> changelog.md
+              echo "$FEATURES" >> changelog.md
+              echo "" >> changelog.md
+            fi
+            
+            # Fixes
+            FIXES=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" | grep "^* fix")
+            if [ ! -z "$FIXES" ]; then
+              echo "### 🐛 Bug Fixes" >> changelog.md
+              echo "$FIXES" >> changelog.md
+              echo "" >> changelog.md
+            fi
+            
+            # Other changes - excluding PR merges and version bumps
+            OTHER=$(git log ${PREVIOUS_TAG}..${TAG} --pretty=format:"* %s" | 
+                   grep -v "^* feat" | 
+                   grep -v "^* fix" | 
+                   grep -v "chore: bump version" | 
+                   grep -v "Merge pull request")
+            if [ ! -z "$OTHER" ]; then
+              echo "### 🔄 Other Changes" >> changelog.md
+              echo "$OTHER" >> changelog.md
+            fi
+          fi
+          
+          # Output changelog for GitHub Actions
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Create Project Zip
+        run: |
+          # Create a zip of the entire project excluding unnecessary files
+          zip -r docker-odoo.zip . \
+            -x '*.git*' \
+            -x '*/.github/*' \
+            -x '*.pyc' \
+            -x '__pycache__/*' \
+            -x '*/.DS_Store' \
+            -x '*/._*'
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.bump.outputs.tag }}
+          name: "Release ${{ steps.bump.outputs.new_version }}"
+          body_path: changelog.md
+          files: docker-odoo.zip
+          token: ${{ secrets.GITHUB_TOKEN }} 
