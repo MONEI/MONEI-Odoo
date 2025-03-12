@@ -1,11 +1,7 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_monei_payment_user,monei.payment.user,model_monei_payment,base.group_user,1,1,1,1
-access_monei_sync_wizard,access.monei.sync.wizard,model_monei_sync_wizard,base.group_user,1,1,1,0
-access_monei_payment,monei.payment,model_monei_payment,base.group_user,1,1,1,0
 access_monei_sync_wizard,monei.sync.wizard,model_monei_sync_wizard,base.group_user,1,1,1,0
+access_monei_payment,monei.payment,model_monei_payment,base.group_user,1,1,1,0
 access_monei_refund_wizard,monei.payment.refund.wizard,model_monei_payment_refund_wizard,base.group_user,1,1,1,0
 access_monei_cancel_wizard,monei.payment.cancel.wizard,model_monei_payment_cancel_wizard,base.group_user,1,1,1,0
 access_monei_capture_wizard,monei.payment.capture.wizard,model_monei_payment_capture_wizard,base.group_user,1,1,1,0
-access_monei_create_wizard,monei.payment.create.wizard,model_monei_payment_create_wizard,base.group_user,1,1,1,0
-access_monei_payment_method,monei.payment.method,model_monei_payment_method,base.group_user,1,1,1,1
-access_monei_payment_send_link_wizard,monei.payment.send.link.wizard,model_monei_payment_send_link_wizard,base.group_user,1,1,1,0
