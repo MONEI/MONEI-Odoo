@@ -1,0 +1,314 @@
+name: Unified Release Process
+
+on:
+  # Automatic trigger after version bump
+  workflow_run:
+    workflows: ["Version Bump and Release"]
+    types:
+      - completed
+    branches: ['16.0', '17.0', '18.0']
+  
+  # Push trigger to make the workflow visible in the Actions tab
+  # This won't actually run the workflow due to the job condition
+  push:
+    branches: ['16.0', '17.0', '18.0']
+  
+  # Manual trigger with optional parameters
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (without v prefix, e.g. 1.1.0)'
+        required: false
+        default: ''
+      tag:
+        description: 'Tag to use for release (with v prefix, e.g. v1.1.0)'
+        required: false
+        default: ''
+      create_tag:
+        description: 'Create tag if it does not exist'
+        type: boolean
+        required: false
+        default: false
+      draft:
+        description: 'Create as draft release'
+        type: boolean
+        required: false
+        default: false
+      odoo_version:
+        description: 'Odoo version (e.g. 18.0)'
+        required: false
+        default: ''
+
+jobs:
+  create-release:
+    # Skip if it's a push event or if the version bump workflow failed
+    if: ${{ github.event_name != 'push' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Determine checkout ref
+        id: checkout_ref
+        run: |
+          # Determine which ref to checkout based on the event type
+          if [ "${{ github.event_name }}" == "workflow_run" ]; then
+            REF="${{ github.event.workflow_run.head_branch }}"
+          else
+            REF="${{ github.ref }}"
+          fi
+          echo "ref=$REF" >> $GITHUB_OUTPUT
+          echo "Will checkout: $REF"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ steps.checkout_ref.outputs.ref }}
+          
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+      - name: Debug Information
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Ref name: ${{ github.ref_name }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Workflow: ${{ github.workflow }}"
+          
+          if [ "${{ github.event_name }}" == "workflow_run" ]; then
+            echo "Workflow run event details:"
+            echo "  Workflow: ${{ github.event.workflow_run.name }}"
+            echo "  Workflow ID: ${{ github.event.workflow_run.id }}"
+            echo "  Head branch: ${{ github.event.workflow_run.head_branch }}"
+            echo "  Head SHA: ${{ github.event.workflow_run.head_sha }}"
+            echo "  Conclusion: ${{ github.event.workflow_run.conclusion }}"
+          fi
+          
+      - name: Debug Manifest
+        run: |
+          echo "Looking for manifest files..."
+          MANIFEST_FILES=$(find . -name "__manifest__.py")
+          
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest files found!"
+          else
+            echo "Found manifest files:"
+            for file in $MANIFEST_FILES; do
+              echo "- $file"
+              echo "Content:"
+              cat "$file" | grep -A 2 -B 2 "version"
+            done
+          fi
+          
+      - name: Determine Version and Tag
+        id: version
+        run: |
+          # Get current branch name more reliably
+          BRANCH_NAME=""
+          
+          # Try different methods to get the branch name
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # For manual triggers, use the ref_name
+            BRANCH_NAME="${{ github.ref_name }}"
+            echo "Using branch from ref_name: $BRANCH_NAME"
+          elif [ "${{ github.event_name }}" == "workflow_run" ]; then
+            # For workflow_run triggers, use the head_branch from the triggering workflow
+            BRANCH_NAME="${{ github.event.workflow_run.head_branch }}"
+            echo "Using branch from workflow_run: $BRANCH_NAME"
+          elif [ "${{ github.event_name }}" == "push" ]; then
+            # For push triggers, use the ref_name
+            BRANCH_NAME="${{ github.ref_name }}"
+            echo "Using branch from push event: $BRANCH_NAME"
+          fi
+          
+          # Extract Odoo version from branch name
+          ODOO_VERSION=$(echo "$BRANCH_NAME" | grep -oE '[0-9]+\.[0-9]+' || echo "")
+          
+          # If we couldn't extract it or if it's empty, use the input or default to "unknown"
+          if [ -z "$ODOO_VERSION" ]; then
+            if [ -n "${{ github.event.inputs.odoo_version }}" ]; then
+              ODOO_VERSION="${{ github.event.inputs.odoo_version }}"
+              echo "Using Odoo version from input: $ODOO_VERSION"
+            else
+              # As a last resort, try to get it from the manifest file
+              MANIFEST_FILE=$(find . -name "__manifest__.py" | head -1)
+              if [ -n "$MANIFEST_FILE" ]; then
+                # Try to extract from manifest name (e.g., if it's in a versioned directory)
+                DIR_VERSION=$(dirname "$MANIFEST_FILE" | grep -oE '[0-9]+\.[0-9]+' || echo "")
+                if [ -n "$DIR_VERSION" ]; then
+                  ODOO_VERSION="$DIR_VERSION"
+                  echo "Using Odoo version from manifest directory: $ODOO_VERSION"
+                else
+                  echo "Warning: Could not determine Odoo version. Using 'unknown'"
+                  ODOO_VERSION="unknown"
+                fi
+              else
+                echo "Warning: Could not determine Odoo version. Using 'unknown'"
+                ODOO_VERSION="unknown"
+              fi
+            fi
+          fi
+          
+          echo "Odoo version: $ODOO_VERSION"
+          
+          # If version is not provided, get it from manifest
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            MANIFEST_FILE=$(find . -name "__manifest__.py" | head -1)
+            if [ -z "$MANIFEST_FILE" ]; then
+              echo "No __manifest__.py file found"
+              exit 1
+            fi
+            
+            VERSION=$(grep -E "'version':\s*'[0-9]+\.[0-9]+\.[0-9]+'" $MANIFEST_FILE | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" || echo "")
+            if [ -z "$VERSION" ]; then
+              echo "Failed to extract version from $MANIFEST_FILE"
+              exit 1
+            fi
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          
+          # If tag is not provided, construct it from version and Odoo version
+          if [ -z "${{ github.event.inputs.tag }}" ]; then
+            TAG="v$VERSION-odoo$ODOO_VERSION"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          
+          echo "Using version: $VERSION and tag: $TAG"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "odoo_version=$ODOO_VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Check for existing tag
+        id: check_tag
+        run: |
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Tag ${{ steps.version.outputs.tag }} already exists"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag ${{ steps.version.outputs.tag }} does not exist"
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create tag if needed
+        if: ${{ steps.check_tag.outputs.tag_exists == 'false' && github.event.inputs.create_tag == 'true' }}
+        run: |
+          echo "Creating tag ${{ steps.version.outputs.tag }}"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+      
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          TAG=${{ steps.version.outputs.tag }}
+          VERSION=${{ steps.version.outputs.version }}
+          ODOO_VERSION=${{ steps.version.outputs.odoo_version }}
+          
+          echo "Generating changelog for version $VERSION (tag $TAG) for Odoo $ODOO_VERSION"
+          
+          # Generate changelog from commits since last tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "Previous tag: $PREVIOUS_TAG"
+          
+          echo "# Release $VERSION for Odoo $ODOO_VERSION" > changelog.md
+          echo "" >> changelog.md
+          
+          # Check for manual release notes
+          if [ -f "RELEASE_NOTES.md" ]; then
+            echo "Found RELEASE_NOTES.md, including in changelog"
+            echo "## Release Notes" >> changelog.md
+            cat RELEASE_NOTES.md >> changelog.md
+            echo "" >> changelog.md
+          fi
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            # First release - get all commits
+            echo "No previous tag found, including all commits"
+            echo "## Changes" >> changelog.md
+            git log --pretty=format:"* %s" 2>/dev/null | grep -v "chore: bump version" | grep -v "Merge pull request" | head -50 >> changelog.md || echo "* Initial release" >> changelog.md
+          else
+            # Group changes by type
+            echo "## Changes since $PREVIOUS_TAG" >> changelog.md
+            echo "" >> changelog.md
+            
+            # Get all commits first without the bullet point
+            ALL_COMMITS=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"%s" 2>/dev/null)
+            
+            # Features
+            FEATURES=$(echo "$ALL_COMMITS" | grep "^feat" | sed 's/^/* /' || echo "")
+            if [ ! -z "$FEATURES" ]; then
+              echo "### ✨ New Features" >> changelog.md
+              echo "$FEATURES" >> changelog.md
+              echo "" >> changelog.md
+            fi
+            
+            # Fixes
+            FIXES=$(echo "$ALL_COMMITS" | grep "^fix" | sed 's/^/* /' || echo "")
+            if [ ! -z "$FIXES" ]; then
+              echo "### 🐛 Bug Fixes" >> changelog.md
+              echo "$FIXES" >> changelog.md
+              echo "" >> changelog.md
+            fi
+            
+            # Other changes - excluding PR merges and version bumps
+            OTHER=$(echo "$ALL_COMMITS" | 
+                   grep -v "^feat" | 
+                   grep -v "^fix" | 
+                   grep -v "chore: bump version" | 
+                   grep -v "Merge pull request" | 
+                   sed 's/^/* /' || echo "")
+            if [ ! -z "$OTHER" ]; then
+              echo "### 🔄 Other Changes" >> changelog.md
+              echo "$OTHER" >> changelog.md
+            fi
+            
+            # If no changes were found, add a default message
+            if [ -z "$FEATURES" ] && [ -z "$FIXES" ] && [ -z "$OTHER" ]; then
+              echo "### Changes" >> changelog.md
+              echo "* Maintenance release" >> changelog.md
+            fi
+          fi
+          
+          echo "Generated changelog:"
+          cat changelog.md
+          
+          # Output changelog for GitHub Actions
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Create Project Zip
+        id: create_zip
+        run: |
+          # Create a zip of only the monei folder with the new naming format
+          ZIP_FILE="monei-v${{ steps.version.outputs.version }}-${{ steps.version.outputs.odoo_version }}.zip"
+          
+          # Check if monei folder exists
+          if [ ! -d "monei" ]; then
+            echo "Error: monei folder not found in the repository"
+            exit 1
+          fi
+          
+          # Create zip with only the monei folder
+          zip -r "$ZIP_FILE" monei \
+            -x '*.pyc' \
+            -x '__pycache__/*' \
+            -x '*/.DS_Store' \
+            -x '*/._*'
+          
+          echo "zip_file=$ZIP_FILE" >> $GITHUB_OUTPUT
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Release ${{ steps.version.outputs.version }} (Odoo ${{ steps.version.outputs.odoo_version }})"
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: ${{ steps.create_zip.outputs.zip_file }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: ${{ github.event.inputs.draft || false }}
+          prerelease: false 

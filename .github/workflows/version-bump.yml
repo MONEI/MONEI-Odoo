@@ -1,4 +1,4 @@
-name: Version Bump
+name: Version Bump and Release
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
     branches: ['16.0', '17.0', '18.0']
 
 jobs:
-  bump:
+  bump-version:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
@@ -27,35 +27,145 @@ jobs:
           git config --local user.name "GitHub Action"
           
       - name: Bump version
+        id: bump
         run: |
+          # Extract Odoo version from branch name
+          ODOO_VERSION=$(echo "${{ github.ref_name }}" | grep -oE '[0-9]+\.[0-9]+')
+          echo "Odoo version: $ODOO_VERSION"
+          
           # Get current version from manifest
-          CURRENT_VERSION=$(grep "version': '" monei/__manifest__.py | cut -d"'" -f4)
+          MANIFEST_FILE=$(find . -name "__manifest__.py" | head -1)
+          if [ -z "$MANIFEST_FILE" ]; then
+            echo "No __manifest__.py file found"
+            exit 1
+          fi
+          
+          # More robust version extraction with error handling
+          CURRENT_VERSION=$(grep -E "'version':\s*'[0-9]+\.[0-9]+\.[0-9]+'" $MANIFEST_FILE | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" || echo "")
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "Failed to extract current version from $MANIFEST_FILE"
+            echo "Manifest content:"
+            cat $MANIFEST_FILE | grep -A 3 -B 3 "version"
+            exit 1
+          fi
+          echo "Current version: $CURRENT_VERSION"
           
           # Analyze PR commits to determine bump type
-          COMMITS=$(gh pr view ${{ github.event.pull_request.number }} --json commits --jq '.commits[].messageHeadline')
+          echo "PR number: ${{ github.event.pull_request.number }}"
+          COMMITS=$(gh pr view ${{ github.event.pull_request.number }} --json commits --jq '.commits[].messageHeadline' || echo "")
+          if [ -z "$COMMITS" ]; then
+            echo "Warning: Could not fetch commits from PR. Using default patch bump."
+            COMMITS=""
+          else
+            echo "Commits in PR:"
+            echo "$COMMITS"
+          fi
           
-          # Determine version bump type
+          # Determine version bump type - fixed to avoid subshell variable scope issues
           BUMP_TYPE="patch"  # default to patch
-          echo "$COMMITS" | while read -r commit; do
-            if echo "$commit" | grep -q "^feat"; then
-              BUMP_TYPE="minor"
-            elif echo "$commit" | grep -q "BREAKING CHANGE"; then
-              BUMP_TYPE="major"
-              break
+          
+          # Check for breaking changes first (highest priority)
+          if echo "$COMMITS" | grep -q "BREAKING CHANGE"; then
+            BUMP_TYPE="major"
+          # Then check for features
+          elif echo "$COMMITS" | grep -q "^feat"; then
+            BUMP_TYPE="minor"
+          fi
+          
+          echo "Bump type determined: $BUMP_TYPE"
+          
+          # Calculate new version manually with validation
+          if [[ ! "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Current version $CURRENT_VERSION does not match expected format (major.minor.patch)"
+            exit 1
+          fi
+          
+          IFS='.' read -r -a VERSION_PARTS <<< "$CURRENT_VERSION"
+          MAJOR=${VERSION_PARTS[0]}
+          MINOR=${VERSION_PARTS[1]}
+          PATCH=${VERSION_PARTS[2]}
+          
+          if [ "$BUMP_TYPE" == "major" ]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif [ "$BUMP_TYPE" == "minor" ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+          
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          echo "New version: $NEW_VERSION"
+          
+          # Update manifest version with better pattern matching
+          if ! sed -i "s/'version':\s*'$CURRENT_VERSION'/'version': '$NEW_VERSION'/g" $MANIFEST_FILE; then
+            echo "Failed to update version in manifest file"
+            exit 1
+          fi
+          
+          # Verify the change was made
+          if ! grep -q "'version': '$NEW_VERSION'" $MANIFEST_FILE; then
+            echo "Version update verification failed. Trying alternative pattern."
+            # Try an alternative pattern
+            sed -i "s/\"version\":\s*\"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/g" $MANIFEST_FILE
+          fi
+          
+          # Check if there are changes to commit
+          if ! git diff --quiet $MANIFEST_FILE; then
+            # Commit the version change
+            git add $MANIFEST_FILE
+            git commit -m "chore: bump version to $NEW_VERSION"
+            
+            # Create tag with Odoo version
+            TAG="v$NEW_VERSION-odoo$ODOO_VERSION"
+            git tag "$TAG"
+            
+            # Set outputs for next steps
+            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "odoo_version=$ODOO_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "No changes detected in manifest file. Version might already be updated."
+            exit 1
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Push changes
+        run: |
+          echo "Pushing changes to branch ${{ github.ref_name }}"
+          # Make sure we have the latest changes
+          git pull --rebase origin ${{ github.ref_name }} || echo "Warning: Could not rebase, continuing anyway"
+          
+          # Try to push changes, with retry logic
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          PUSH_SUCCESS=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$PUSH_SUCCESS" != "true" ]; do
+            if git push --follow-tags origin ${{ github.ref_name }}; then
+              PUSH_SUCCESS=true
+              echo "Successfully pushed changes to ${{ github.ref_name }}"
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "Push failed, retrying in 5 seconds (attempt $RETRY_COUNT of $MAX_RETRIES)..."
+                sleep 5
+                # Pull again before retrying
+                git pull --rebase origin ${{ github.ref_name }} || echo "Warning: Could not rebase before retry"
+              else
+                echo "Failed to push changes after $MAX_RETRIES attempts"
+                exit 1
+              fi
             fi
           done
-          
-          # Run standard-version with determined bump type
-          standard-version --release-as $BUMP_TYPE --skip.tag --skip.changelog
-          
-          # Get new version
-          NEW_VERSION=$(grep '"version":' package.json | cut -d'"' -f4)
-          
-          # Update manifest version
-          sed -i "s/'version': '$CURRENT_VERSION'/'version': '$NEW_VERSION'/g" monei/__manifest__.py
-          
-          # Create tag and push
-          git tag "v$NEW_VERSION"
-          git push --follow-tags origin ${{ github.ref_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+      
+      - name: Output Version Info
+        run: |
+          echo "Version bump completed successfully!"
+          echo "New version: ${{ steps.bump.outputs.new_version }}"
+          echo "New tag: ${{ steps.bump.outputs.tag }}"
+          echo "Odoo version: ${{ steps.bump.outputs.odoo_version }}"
+          echo "The release workflow will now be triggered to create a GitHub release." 
