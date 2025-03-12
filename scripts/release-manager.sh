@@ -292,16 +292,20 @@ create_release() {
   
   # Create zip file
   echo "Creating zip file..."
-  ZIP_FILE="monei-odoo-$version-odoo$odoo_version.zip"
-  zip -r "$ZIP_FILE" . \
-    -x '*.git*' \
-    -x '*/.github/*' \
+  ZIP_FILE="monei-v$version-$odoo_version.zip"
+  
+  # Check if monei folder exists
+  if [ ! -d "monei" ]; then
+    echo "Error: monei folder not found in the repository"
+    exit 1
+  fi
+  
+  # Create zip with only the monei folder
+  zip -r "$ZIP_FILE" monei \
     -x '*.pyc' \
     -x '__pycache__/*' \
     -x '*/.DS_Store' \
-    -x '*/._*' \
-    -x 'changelog.md' \
-    -x "$ZIP_FILE"
+    -x '*/._*'
   
   echo "Zip file created: $ZIP_FILE"
   
