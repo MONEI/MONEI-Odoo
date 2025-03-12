@@ -284,17 +284,21 @@ jobs:
       - name: Create Project Zip
         id: create_zip
         run: |
-          # Create a zip of the entire project excluding unnecessary files
-          ZIP_FILE="monei-odoo-${{ steps.version.outputs.version }}-odoo${{ steps.version.outputs.odoo_version }}.zip"
+          # Create a zip of only the monei folder with the new naming format
+          ZIP_FILE="monei-v${{ steps.version.outputs.version }}-${{ steps.version.outputs.odoo_version }}.zip"
           
-          zip -r "$ZIP_FILE" . \
-            -x '*.git*' \
-            -x '*/.github/*' \
+          # Check if monei folder exists
+          if [ ! -d "monei" ]; then
+            echo "Error: monei folder not found in the repository"
+            exit 1
+          fi
+          
+          # Create zip with only the monei folder
+          zip -r "$ZIP_FILE" monei \
             -x '*.pyc' \
             -x '__pycache__/*' \
             -x '*/.DS_Store' \
-            -x '*/._*' \
-            -x 'changelog.md'
+            -x '*/._*'
           
           echo "zip_file=$ZIP_FILE" >> $GITHUB_OUTPUT
       
