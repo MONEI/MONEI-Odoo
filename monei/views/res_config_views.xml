@@ -17,8 +17,8 @@
         <field name="arch" type="xml">
             <xpath expr="//div[hasclass('settings')]" position="inside">
                 <div class="app_settings_block" data-string="MONEI" string="MONEI" data-key="monei">
-                    <h2>MONEI Settings</h2>
-                    <div class="row mt16 o_settings_container" name="monei_settings">
+                    <h2>Connection Settings</h2>
+                    <div class="row mt16 o_settings_container" name="connection_settings">
                         <div class="col-12 col-lg-6 o_setting_box">
                             <div class="o_setting_left_pane"/>
                             <div class="o_setting_right_pane">
@@ -32,6 +32,41 @@
                                 <div class="content-group">
                                     <div class="mt16">
                                         <field name="monei_api_key" class="o_field_widget"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="app_settings_block" data-string="MONEI" string="MONEI" data-key="monei">
+                    <h2>Sync Settings</h2>
+                    <div class="row mt16 o_settings_container" name="sync_settings">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane">
+                                <field name="disable_sync_on_load" attrs="{'readonly': [('monei_api_key', '=', False)]}"/>
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="disable_sync_on_load" string="Disable Sync on Load"/>
+                                <div class="text-muted">
+                                    Disable automatic sync of payments when opening their form
+                                </div>
+                            </div>
+                            <div class="o_setting_left_pane">
+                                <field name="enable_cron_sync" attrs="{'readonly': [('monei_api_key', '=', False)]}"/>
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="enable_cron_sync" string="Enable Automatic Sync"/>
+                                <div class="text-muted">
+                                    Configure automatic synchronization schedule
+                                </div>
+                                <div class="content-group" attrs="{'invisible': [('enable_cron_sync', '=', False)]}">
+                                    <div class="mt16 row">
+                                        <label for="cron_interval_number" string="Sync Frequency" class="col-lg-3 o_light_label"/>
+                                        <field name="cron_interval_number" class="col-lg-3" attrs="{'readonly': [('monei_api_key', '=', False)]}"/>
+                                        <field name="cron_interval_type" class="col-lg-6" attrs="{'readonly': [('monei_api_key', '=', False)]}"/>
+                                    </div>
+                                    <div class="mt8">
+                                        <small>Note: Each sync will retrieve payments from the last 24 hours</small>
                                     </div>
                                 </div>
                             </div>
