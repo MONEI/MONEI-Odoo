@@ -223,8 +223,11 @@ generate_changelog() {
     echo "## Changes since $PREVIOUS_TAG" >> changelog.md
     echo "" >> changelog.md
     
+    # Get all commits first without the bullet point
+    ALL_COMMITS=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"%s")
+    
     # Features
-    FEATURES=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"* %s" | grep "^feat" || echo "")
+    FEATURES=$(echo "$ALL_COMMITS" | grep "^feat" | sed 's/^/* /' || echo "")
     if [ -n "$FEATURES" ]; then
       echo "### ✨ New Features" >> changelog.md
       echo "$FEATURES" >> changelog.md
@@ -232,7 +235,7 @@ generate_changelog() {
     fi
     
     # Fixes
-    FIXES=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"* %s" | grep "^fix" || echo "")
+    FIXES=$(echo "$ALL_COMMITS" | grep "^fix" | sed 's/^/* /' || echo "")
     if [ -n "$FIXES" ]; then
       echo "### 🐛 Bug Fixes" >> changelog.md
       echo "$FIXES" >> changelog.md
@@ -240,11 +243,12 @@ generate_changelog() {
     fi
     
     # Other changes - excluding PR merges and version bumps
-    OTHER=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"* %s" | 
+    OTHER=$(echo "$ALL_COMMITS" | 
            grep -v "^feat" | 
            grep -v "^fix" | 
            grep -v "chore: bump version" | 
-           grep -v "Merge pull request" || echo "")
+           grep -v "Merge pull request" | 
+           sed 's/^/* /' || echo "")
     if [ -n "$OTHER" ]; then
       echo "### 🔄 Other Changes" >> changelog.md
       echo "$OTHER" >> changelog.md
