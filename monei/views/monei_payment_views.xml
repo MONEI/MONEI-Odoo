@@ -116,6 +116,7 @@
                         <h3>
                             <field name="payment_url" widget="url" text="View in MONEI Dashboard"/>
                         </h3>
+                        <field name="sync_status" invisible="1"/>
                     </div>
                     <notebook>
                         <page string="Basic Information" name="basic_info">

@@ -5,11 +5,16 @@
     'category': 'Accounting',
     'sequence': 350,
     'website': 'https://monei.com',
-    'summary': 'MONEI Payment Data',
-    'description': """MONEI Payment Data""",
+    'summary': 'MONEI Payment Integration',
+    'description': """
+MONEI Payment Integration for Odoo
+=================================
+This module integrates MONEI payment services with Odoo.
+    """,
     'depends': ['base', 'sale'],
     'data': [
         'security/ir.model.access.csv',
+        'data/ir_cron_data.xml',
         'views/res_config_views.xml',
         'views/send_link_wizard_views.xml',
         'views/sync_wizard_views.xml',
@@ -22,7 +27,9 @@
         'views/sale_order_views.xml',
     ],
     'application': True,
-    'license': 'OPL-1',
+    'post_init_hook': 'post_init_hook',
+    'uninstall_hook': 'uninstall_hook',
+    'license': 'LGPL-3',
     'external_dependencies': {
         'python': ['requests'],
     },
