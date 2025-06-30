@@ -16,6 +16,7 @@ This module integrates MONEI payment services with Odoo.
         'security/ir.model.access.csv',
         'data/ir_cron_data.xml',
         'views/res_config_views.xml',
+        'views/link_order_wizard_views.xml',
         'views/send_link_wizard_views.xml',
         'views/sync_wizard_views.xml',
         'views/create_wizard_views.xml',
