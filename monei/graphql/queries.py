@@ -79,12 +79,6 @@ query {
                     email
                     name
                 }
-                cofidis {
-                    orderId
-                }
-                cofidisLoan {
-                    orderId
-                }
                 trustly {
                     customerId
                 }
