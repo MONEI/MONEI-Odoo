@@ -1,7 +1,7 @@
 {
     'name': 'MONEI',
     'author': 'MONEI',
-    'version': '1.1.1',
+    'version': '1.2.0',
     'category': 'Accounting',
     'sequence': 350,
     'website': 'https://monei.com',
