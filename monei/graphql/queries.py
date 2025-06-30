@@ -79,12 +79,6 @@ query {
                     email
                     name
                 }
-                cofidis {
-                    orderId
-                }
-                cofidisLoan {
-                    orderId
-                }
                 trustly {
                     customerId
                 }
@@ -296,12 +290,6 @@ query Charge($id: ID!) {
                 payerId
                 email
                 name
-            }
-            cofidis {
-                orderId
-            }
-            cofidisLoan {
-                orderId
             }
             trustly {
                 customerId
