@@ -20,8 +20,6 @@ class MoneiPaymentMethod(models.TransientModel):
             'alipay': 'Alipay',
             'bancontact': 'Bancontact',
             'bizum': 'Bizum',
-            'cofidis': 'Cofidis',
-            'cofidisLoan': 'Cofidis Loan',
             'mbway': 'MB WAY',
             'multibanco': 'Multibanco',
             'paypal': 'PayPal',
