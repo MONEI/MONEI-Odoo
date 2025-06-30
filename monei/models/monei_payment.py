@@ -194,8 +194,6 @@ class MoneiPayment(models.Model):
         ('cardPresent', 'Card Present'),
         ('bizum', 'Bizum'),
         ('paypal', 'PayPal'),
-        ('cofidis', 'Cofidis'),
-        ('cofidisLoan', 'Cofidis Loan'),
         ('trustly', 'Trustly'),
         ('sepa', 'SEPA'),
         ('klarna', 'Klarna'),
