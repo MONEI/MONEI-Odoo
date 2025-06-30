@@ -97,6 +97,10 @@
                             </div>
                         </button>
                     </div>
+                    <button name="action_update_order_id"
+                            type="object"
+                            string="Link to Sale Order"
+                            class="oe_highlight"/>
                 </header>
                 <sheet>
                     <div class="oe_title">

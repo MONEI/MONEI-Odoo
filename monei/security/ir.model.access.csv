@@ -8,3 +8,4 @@ access_monei_capture_wizard,monei.payment.capture.wizard,model_monei_payment_cap
 access_monei_create_wizard,monei.payment.create.wizard,model_monei_payment_create_wizard,base.group_user,1,1,1,0
 access_monei_payment_method,monei.payment.method,model_monei_payment_method,base.group_user,1,1,1,1
 access_monei_payment_send_link_wizard,monei.payment.send.link.wizard,model_monei_payment_send_link_wizard,base.group_user,1,1,1,0
+access_monei_link_order_wizard,monei.payment.link.order.wizard,model_monei_payment_link_order_wizard,base.group_user,1,1,1,0
