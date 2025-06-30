@@ -291,12 +291,6 @@ query Charge($id: ID!) {
                 email
                 name
             }
-            cofidis {
-                orderId
-            }
-            cofidisLoan {
-                orderId
-            }
             trustly {
                 customerId
             }
