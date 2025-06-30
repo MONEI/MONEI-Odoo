@@ -4,3 +4,4 @@ from . import cancel_wizard
 from . import capture_wizard
 from . import create_wizard
 from . import send_link_wizard
+from . import link_order_wizard
