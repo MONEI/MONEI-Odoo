@@ -999,3 +999,17 @@ class MoneiPayment(models.Model):
             else:
                 record.payment_url = False
             
+
+    def action_update_order_id(self):
+        self.ensure_one()
+        return {
+            'name': _('Link to Sale Order'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'monei.payment.link.order.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_payment_id': self.id,
+                'default_sale_order_name': self.order_id,
+            }
+        } 
