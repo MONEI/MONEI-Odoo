@@ -68,6 +68,11 @@
                             type="object" 
                             class="oe_highlight"
                             attrs="{'invisible': [('status', 'not in', ('PENDING', 'AUTHORIZED'))]}"/>
+
+                    <button name="action_update_order_id"
+                            type="object"
+                            string="Link to Sale Order"
+                            class="oe_highlight"/>
                      <div class="oe_right oe_button_box" attrs="{'invisible': [('sale_order_id', '=', False)]}">
                         <button name="action_view_sale_order" 
                                 type="object"

@@ -1,7 +1,7 @@
 {
     'name': 'MONEI',
     'author': 'MONEI',
-    'version': '1.1.1',
+    'version': '1.0.0',
     'category': 'Accounting',
     'sequence': 350,
     'website': 'https://monei.com',
@@ -25,6 +25,7 @@ This module integrates MONEI payment services with Odoo.
         'views/refund_wizard_views.xml',
         'views/capture_wizard_views.xml',
         'views/sale_order_views.xml',
+        'views/link_order_wizard_views.xml',
     ],
     'application': True,
     'post_init_hook': 'post_init_hook',

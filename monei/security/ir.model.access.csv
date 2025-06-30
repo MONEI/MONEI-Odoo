@@ -5,3 +5,6 @@ access_monei_payment,monei.payment,model_monei_payment,base.group_user,1,1,1,0
 access_monei_refund_wizard,monei.payment.refund.wizard,model_monei_payment_refund_wizard,base.group_user,1,1,1,0
 access_monei_cancel_wizard,monei.payment.cancel.wizard,model_monei_payment_cancel_wizard,base.group_user,1,1,1,0
 access_monei_capture_wizard,monei.payment.capture.wizard,model_monei_payment_capture_wizard,base.group_user,1,1,1,0
+access_monei_create_wizard,monei.payment.create.wizard,model_monei_payment_create_wizard,base.group_user,1,1,1,0
+access_monei_payment_method,monei.payment.method,model_monei_payment_method,base.group_user,1,1,1,1
+access_monei_link_order_wizard,monei.payment.link.order.wizard,model_monei_payment_link_order_wizard,base.group_user,1,1,1,0
